@@ -1,0 +1,6 @@
+{
+  "name": "FLOURISH DESTINY COLLECTION",
+  "description": "Multi-service commerce, custom tailoring, artisanal bakery, event catering, grocery hub, and Kogi State intra-city ride-hailing platform in Okene, Kogi State.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
