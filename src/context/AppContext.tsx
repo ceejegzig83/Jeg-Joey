@@ -11,14 +11,30 @@ import {
   Driver, 
   UserProfile, 
   LocationPoint,
-  PaymentMethod 
+  PaymentMethod,
+  BespokeTailoringSample,
+  CakeCustomSample,
+  CateringPackage,
+  CateringSampleDish,
+  TransportSampleRoute,
+  BusinessInfoConfig,
+  AnnouncementConfig,
+  FareConfig
 } from '../types';
 import { 
   INITIAL_PRODUCTS, 
   INITIAL_DRIVERS, 
   INITIAL_ORDERS, 
   DELIVERY_ZONES,
-  KOGI_LOCATIONS 
+  KOGI_LOCATIONS,
+  CATERING_PACKAGES,
+  BESPOKE_TAILORING_SAMPLES,
+  CAKE_CUSTOM_SAMPLES,
+  CATERING_SAMPLE_DISHES,
+  TRANSPORT_SAMPLE_ROUTES,
+  INITIAL_BUSINESS_CONFIG,
+  INITIAL_ANNOUNCEMENT_CONFIG,
+  INITIAL_FARE_CONFIG
 } from '../data/mockData';
 
 interface Toast {
@@ -34,11 +50,60 @@ interface AppContextType {
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   
-  // Products
+  // Products & Inventory Management
   products: Product[];
   addProduct: (product: Product) => void;
   updateProduct: (product: Product) => void;
+  deleteProduct: (productId: string) => void;
+  toggleProductInStock: (productId: string) => void;
+  quickUpdateProductPrice: (productId: string, newPrice: number) => void;
   
+  // Bespoke Tailoring Samples
+  bespokeSamples: BespokeTailoringSample[];
+  addBespokeSample: (sample: BespokeTailoringSample) => void;
+  updateBespokeSample: (sample: BespokeTailoringSample) => void;
+  deleteBespokeSample: (id: string) => void;
+
+  // Custom Cake Designs
+  cakeSamples: CakeCustomSample[];
+  addCakeSample: (sample: CakeCustomSample) => void;
+  updateCakeSample: (sample: CakeCustomSample) => void;
+  deleteCakeSample: (id: string) => void;
+
+  // Catering Packages & Event Dishes
+  cateringPackages: CateringPackage[];
+  addCateringPackage: (pkg: CateringPackage) => void;
+  updateCateringPackage: (pkg: CateringPackage) => void;
+  deleteCateringPackage: (id: string) => void;
+  cateringDishes: CateringSampleDish[];
+  addCateringDish: (dish: CateringSampleDish) => void;
+  updateCateringDish: (dish: CateringSampleDish) => void;
+  deleteCateringDish: (id: string) => void;
+
+  // Transport Routes & Logistics
+  transportRoutes: TransportSampleRoute[];
+  addTransportRoute: (route: TransportSampleRoute) => void;
+  updateTransportRoute: (route: TransportSampleRoute) => void;
+  deleteTransportRoute: (id: string) => void;
+  drivers: Driver[];
+  addDriver: (driver: Driver) => void;
+  updateDriver: (driver: Driver) => void;
+  deleteDriver: (id: string) => void;
+  toggleDriverOnline: (id: string) => void;
+  fareConfig: FareConfig;
+  updateFareConfig: (config: Partial<FareConfig>) => void;
+
+  // Site-wide CMS & Business Settings
+  businessInfo: BusinessInfoConfig;
+  updateBusinessInfo: (info: Partial<BusinessInfoConfig>) => void;
+  announcement: AnnouncementConfig;
+  updateAnnouncement: (config: Partial<AnnouncementConfig>) => void;
+
+  // System Backup & Factory Reset
+  resetAllToFactoryDefaults: () => void;
+  exportSiteDataBackup: () => string;
+  importSiteDataBackup: (jsonData: string) => boolean;
+
   // Cart
   cart: CartItem[];
   addToCart: (product: Product, quantity?: number, selectedSize?: string, selectedColor?: string, specialNotes?: string) => void;
@@ -49,7 +114,7 @@ interface AppContextType {
   selectedDeliveryZone: typeof DELIVERY_ZONES[0];
   setSelectedDeliveryZone: (zone: typeof DELIVERY_ZONES[0]) => void;
   cartTotal: number;
-  isCoDAllowedInCart: boolean; // CoD ONLY for grocery, ready-to-wear fashion, standard bakery
+  isCoDAllowedInCart: boolean;
   cartContainsMandatoryOnlineDivision: boolean;
   
   // Orders
@@ -75,7 +140,6 @@ interface AppContextType {
   // Ride Hailing
   activeRide: RideRequest | null;
   rideHistory: RideRequest[];
-  drivers: Driver[];
   requestRide: (data: {
     customerName: string;
     customerPhone: string;
@@ -134,6 +198,60 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [products, setProducts] = useState<Product[]>(() => {
     const saved = localStorage.getItem('fdc_products');
     return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
+  });
+
+  // Bespoke samples state
+  const [bespokeSamples, setBespokeSamples] = useState<BespokeTailoringSample[]>(() => {
+    const saved = localStorage.getItem('fdc_bespoke_samples');
+    return saved ? JSON.parse(saved) : BESPOKE_TAILORING_SAMPLES;
+  });
+
+  // Custom cake samples state
+  const [cakeSamples, setCakeSamples] = useState<CakeCustomSample[]>(() => {
+    const saved = localStorage.getItem('fdc_cake_samples');
+    return saved ? JSON.parse(saved) : CAKE_CUSTOM_SAMPLES;
+  });
+
+  // Catering packages state
+  const [cateringPackages, setCateringPackages] = useState<CateringPackage[]>(() => {
+    const saved = localStorage.getItem('fdc_catering_packages');
+    return saved ? JSON.parse(saved) : CATERING_PACKAGES;
+  });
+
+  // Catering dishes state
+  const [cateringDishes, setCateringDishes] = useState<CateringSampleDish[]>(() => {
+    const saved = localStorage.getItem('fdc_catering_dishes');
+    return saved ? JSON.parse(saved) : CATERING_SAMPLE_DISHES;
+  });
+
+  // Transport routes state
+  const [transportRoutes, setTransportRoutes] = useState<TransportSampleRoute[]>(() => {
+    const saved = localStorage.getItem('fdc_transport_routes');
+    return saved ? JSON.parse(saved) : TRANSPORT_SAMPLE_ROUTES;
+  });
+
+  // Drivers state
+  const [drivers, setDrivers] = useState<Driver[]>(() => {
+    const saved = localStorage.getItem('fdc_drivers');
+    return saved ? JSON.parse(saved) : INITIAL_DRIVERS;
+  });
+
+  // Business Info & CMS Settings
+  const [businessInfo, setBusinessInfo] = useState<BusinessInfoConfig>(() => {
+    const saved = localStorage.getItem('fdc_business_config');
+    return saved ? JSON.parse(saved) : INITIAL_BUSINESS_CONFIG;
+  });
+
+  // Announcement Banner
+  const [announcement, setAnnouncement] = useState<AnnouncementConfig>(() => {
+    const saved = localStorage.getItem('fdc_announcement_config');
+    return saved ? JSON.parse(saved) : INITIAL_ANNOUNCEMENT_CONFIG;
+  });
+
+  // Transport Fare Config
+  const [fareConfig, setFareConfig] = useState<FareConfig>(() => {
+    const saved = localStorage.getItem('fdc_fare_config');
+    return saved ? JSON.parse(saved) : INITIAL_FARE_CONFIG;
   });
 
   // Cart state
@@ -218,63 +336,91 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         eventLocation: 'Okene Club Grounds, Obehira Road',
         expectedGuests: 150,
         selectedPackageId: 'cat-standard',
-        customMenuPreferences: ['Firewood Party Jollof', 'Pounded Yam & Egusi', 'Peppered Goat Meat', 'Coleslaw', 'Assorted Juices'],
+        customMenuPreferences: ['Ebira Apapa with Smoked Fish', 'Firewood Party Jollof', 'Pounded Yam with Native Egusi', 'Spicy Asun Goat Meat'],
         serviceStyle: 'Buffet',
-        specialRequirements: 'Requires 4 uniformed waitstaff and chafing dish warmers.',
-        baseFoodCost: 870000,
-        serviceCharge: 50000,
-        transportCharge: 25000,
-        totalQuote: 945000,
-        depositRequired: 472500,
-        depositPaid: 472500,
+        specialRequirements: 'VIP table setting with uniformed waiters and chafing dish warmers.',
+        baseFoodCost: 375000,
+        serviceCharge: 25000,
+        transportCharge: 15000,
+        totalQuote: 415000,
+        depositRequired: 415000,
+        depositPaid: 415000,
         status: 'BOOKING_CONFIRMED',
         paymentStatus: 'PAID',
-        createdAt: '2026-08-26T16:00:00Z'
+        createdAt: '2026-08-27T09:15:00Z'
       }
     ];
   });
 
-  // Drivers and Rides
-  const [drivers] = useState<Driver[]>(INITIAL_DRIVERS);
+  // Active ride hailing
   const [activeRide, setActiveRide] = useState<RideRequest | null>(() => {
     const saved = localStorage.getItem('fdc_active_ride');
     return saved ? JSON.parse(saved) : null;
   });
+
   const [rideHistory, setRideHistory] = useState<RideRequest[]>(() => {
     const saved = localStorage.getItem('fdc_ride_history');
-    return saved ? JSON.parse(saved) : [];
+    return saved ? JSON.parse(saved) : [
+      {
+        id: 'ride-901',
+        customerName: 'Engr. David Ohiare',
+        customerPhone: '08123456780',
+        pickupLocation: KOGI_LOCATIONS[0],
+        destinationLocation: KOGI_LOCATIONS[2],
+        vehicleType: 'CAR',
+        distanceKm: 3.2,
+        estimatedMinutes: 12,
+        baseFare: 800,
+        distanceFare: 650,
+        timeFare: 150,
+        totalFare: 1600,
+        paymentMethod: 'PAYSTACK_CARD',
+        paymentStatus: 'PAID',
+        paymentVerifiedAt: '2026-08-27T16:05:00Z',
+        paymentGatewayRef: 'PSTK_KOGI_889214',
+        status: 'TRIP_COMPLETED',
+        driver: INITIAL_DRIVERS[0],
+        createdAt: '2026-08-27T15:50:00Z',
+        completedAt: '2026-08-27T16:02:00Z'
+      }
+    ];
   });
 
-  // User profile
+  // User profile & Role state
   const [userProfile, setUserProfile] = useState<UserProfile>(() => {
     const saved = localStorage.getItem('fdc_user_profile');
     return saved ? JSON.parse(saved) : {
-      name: 'Destiny Audu',
-      phone: '08034567890',
-      email: 'destiny.audu@gmail.com',
-      defaultAddress: 'Total Junction, Inoziomi, Okene',
+      name: 'Valued Customer',
+      phone: '08000000000',
+      email: 'customer@flourishdestiny.ng',
+      defaultAddress: 'Okene, Kogi State',
       defaultArea: 'Okene Central',
       role: 'CUSTOMER'
     };
   });
 
-  // Admin Authentication & Security
+  // Admin authentication state
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
     return localStorage.getItem('fdc_admin_authenticated') === 'true';
   });
+
   const [isAdminLoginModalOpen, setIsAdminLoginModalOpen] = useState(false);
 
-  const [currentRole, _setCurrentRole] = useState<'CUSTOMER' | 'ADMIN' | 'DRIVER'>('CUSTOMER');
+  const [currentRole, _setCurrentRole] = useState<'CUSTOMER' | 'ADMIN' | 'DRIVER'>(() => {
+    const isAuth = localStorage.getItem('fdc_admin_authenticated') === 'true';
+    return isAuth ? 'ADMIN' : 'CUSTOMER';
+  });
 
   const setCurrentRole = (role: 'CUSTOMER' | 'ADMIN' | 'DRIVER') => {
     if (role === 'ADMIN') {
-      if (!isAdminAuthenticated) {
+      if (isAdminAuthenticated) {
+        _setCurrentRole('ADMIN');
+      } else {
         setIsAdminLoginModalOpen(true);
-        showToast('Administrator authentication required to access management terminal.', 'warning', 'Security Restricted');
-        return;
       }
+    } else {
+      _setCurrentRole(role);
     }
-    _setCurrentRole(role);
   };
 
   const loginAdmin = (usernameOrEmail: string, pass: string): boolean => {
@@ -283,7 +429,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setIsAdminAuthenticated(true);
       localStorage.setItem('fdc_admin_authenticated', 'true');
       _setCurrentRole('ADMIN');
-      showToast('Administrator authenticated successfully. Welcome to HQ Management.', 'success', 'Access Granted');
+      showToast('Administrator authenticated. You now have full access to edit and configure the entire site & app.', 'success', 'HQ Master Access Granted');
       return true;
     }
     return false;
@@ -318,10 +464,46 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setToasts(prev => prev.filter(t => t.id !== id));
   };
 
-  // Sync to local storage
+  // LocalStorage Persistence Effects
   useEffect(() => {
     localStorage.setItem('fdc_products', JSON.stringify(products));
   }, [products]);
+
+  useEffect(() => {
+    localStorage.setItem('fdc_bespoke_samples', JSON.stringify(bespokeSamples));
+  }, [bespokeSamples]);
+
+  useEffect(() => {
+    localStorage.setItem('fdc_cake_samples', JSON.stringify(cakeSamples));
+  }, [cakeSamples]);
+
+  useEffect(() => {
+    localStorage.setItem('fdc_catering_packages', JSON.stringify(cateringPackages));
+  }, [cateringPackages]);
+
+  useEffect(() => {
+    localStorage.setItem('fdc_catering_dishes', JSON.stringify(cateringDishes));
+  }, [cateringDishes]);
+
+  useEffect(() => {
+    localStorage.setItem('fdc_transport_routes', JSON.stringify(transportRoutes));
+  }, [transportRoutes]);
+
+  useEffect(() => {
+    localStorage.setItem('fdc_drivers', JSON.stringify(drivers));
+  }, [drivers]);
+
+  useEffect(() => {
+    localStorage.setItem('fdc_business_config', JSON.stringify(businessInfo));
+  }, [businessInfo]);
+
+  useEffect(() => {
+    localStorage.setItem('fdc_announcement_config', JSON.stringify(announcement));
+  }, [announcement]);
+
+  useEffect(() => {
+    localStorage.setItem('fdc_fare_config', JSON.stringify(fareConfig));
+  }, [fareConfig]);
 
   useEffect(() => {
     localStorage.setItem('fdc_cart', JSON.stringify(cart));
@@ -418,23 +600,240 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const cartSubtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
   const cartTotal = cartSubtotal > 0 ? cartSubtotal + selectedDeliveryZone.fee : 0;
 
-  // Payment rule checks:
-  // CoD is allowed ONLY for grocery, ready-to-wear fashion, and standard bakery.
   const isCoDAllowedInCart = cart.every(item => 
     item.division === 'GROCERY' || item.division === 'FASHION' || item.division === 'BAKERY'
   );
-  const cartContainsMandatoryOnlineDivision = false; // standard cart contains standard catalog items
+  const cartContainsMandatoryOnlineDivision = false;
 
+  // --- ADMIN CMS: Products Management ---
   const addProduct = (product: Product) => {
     setProducts(prev => [product, ...prev]);
-    showToast(`Product "${product.name}" added to catalog`, 'success');
+    showToast(`Product "${product.name}" successfully added to ${product.division} catalog`, 'success', 'Item Created');
   };
 
   const updateProduct = (product: Product) => {
     setProducts(prev => prev.map(p => p.id === product.id ? product : p));
-    showToast(`Product "${product.name}" updated`, 'success');
+    showToast(`Product "${product.name}" updated successfully`, 'success', 'Changes Saved');
   };
 
+  const deleteProduct = (productId: string) => {
+    setProducts(prev => prev.filter(p => p.id !== productId));
+    showToast('Product deleted from inventory', 'info', 'Item Removed');
+  };
+
+  const toggleProductInStock = (productId: string) => {
+    setProducts(prev => prev.map(p => {
+      if (p.id === productId) {
+        const nextState = !p.inStock;
+        showToast(`"${p.name}" is now marked as ${nextState ? 'In Stock' : 'Out of Stock'}`, 'info');
+        return { ...p, inStock: nextState };
+      }
+      return p;
+    }));
+  };
+
+  const quickUpdateProductPrice = (productId: string, newPrice: number) => {
+    setProducts(prev => prev.map(p => {
+      if (p.id === productId) {
+        showToast(`Updated price for "${p.name}" to ₦${newPrice.toLocaleString()}`, 'success');
+        return { ...p, price: newPrice };
+      }
+      return p;
+    }));
+  };
+
+  // --- ADMIN CMS: Bespoke Samples ---
+  const addBespokeSample = (sample: BespokeTailoringSample) => {
+    setBespokeSamples(prev => [sample, ...prev]);
+    showToast(`Tailoring sample "${sample.name}" published`, 'success', 'Sample Added');
+  };
+
+  const updateBespokeSample = (sample: BespokeTailoringSample) => {
+    setBespokeSamples(prev => prev.map(s => s.id === sample.id ? sample : s));
+    showToast(`Tailoring sample "${sample.name}" updated`, 'success', 'Changes Saved');
+  };
+
+  const deleteBespokeSample = (id: string) => {
+    setBespokeSamples(prev => prev.filter(s => s.id !== id));
+    showToast('Tailoring sample removed', 'info');
+  };
+
+  // --- ADMIN CMS: Custom Cakes ---
+  const addCakeSample = (sample: CakeCustomSample) => {
+    setCakeSamples(prev => [sample, ...prev]);
+    showToast(`Cake sample "${sample.name}" published`, 'success', 'Cake Sample Added');
+  };
+
+  const updateCakeSample = (sample: CakeCustomSample) => {
+    setCakeSamples(prev => prev.map(s => s.id === sample.id ? sample : s));
+    showToast(`Cake sample "${sample.name}" updated`, 'success', 'Changes Saved');
+  };
+
+  const deleteCakeSample = (id: string) => {
+    setCakeSamples(prev => prev.filter(s => s.id !== id));
+    showToast('Cake sample removed', 'info');
+  };
+
+  // --- ADMIN CMS: Catering Packages & Dishes ---
+  const addCateringPackage = (pkg: CateringPackage) => {
+    setCateringPackages(prev => [pkg, ...prev]);
+    showToast(`Catering package "${pkg.name}" added`, 'success');
+  };
+
+  const updateCateringPackage = (pkg: CateringPackage) => {
+    setCateringPackages(prev => prev.map(p => p.id === pkg.id ? pkg : p));
+    showToast(`Catering package "${pkg.name}" updated`, 'success');
+  };
+
+  const deleteCateringPackage = (id: string) => {
+    setCateringPackages(prev => prev.filter(p => p.id !== id));
+    showToast('Catering package deleted', 'info');
+  };
+
+  const addCateringDish = (dish: CateringSampleDish) => {
+    setCateringDishes(prev => [dish, ...prev]);
+    showToast(`Catering dish "${dish.name}" added to menu`, 'success');
+  };
+
+  const updateCateringDish = (dish: CateringSampleDish) => {
+    setCateringDishes(prev => prev.map(d => d.id === dish.id ? dish : d));
+    showToast(`Catering dish "${dish.name}" updated`, 'success');
+  };
+
+  const deleteCateringDish = (id: string) => {
+    setCateringDishes(prev => prev.filter(d => d.id !== id));
+    showToast('Catering dish removed', 'info');
+  };
+
+  // --- ADMIN CMS: Transport Routes & Drivers ---
+  const addTransportRoute = (route: TransportSampleRoute) => {
+    setTransportRoutes(prev => [route, ...prev]);
+    showToast(`New route "${route.pickup} → ${route.destination}" added`, 'success');
+  };
+
+  const updateTransportRoute = (route: TransportSampleRoute) => {
+    setTransportRoutes(prev => prev.map(r => r.id === route.id ? route : r));
+    showToast(`Route updated`, 'success');
+  };
+
+  const deleteTransportRoute = (id: string) => {
+    setTransportRoutes(prev => prev.filter(r => r.id !== id));
+    showToast('Transport route removed', 'info');
+  };
+
+  const addDriver = (driver: Driver) => {
+    setDrivers(prev => [driver, ...prev]);
+    showToast(`Driver "${driver.name}" onboarded to fleet`, 'success');
+  };
+
+  const updateDriver = (driver: Driver) => {
+    setDrivers(prev => prev.map(d => d.id === driver.id ? driver : d));
+    showToast(`Driver "${driver.name}" updated`, 'success');
+  };
+
+  const deleteDriver = (id: string) => {
+    setDrivers(prev => prev.filter(d => d.id !== id));
+    showToast('Driver removed from active roster', 'info');
+  };
+
+  const toggleDriverOnline = (id: string) => {
+    setDrivers(prev => prev.map(d => {
+      if (d.id === id) {
+        const nextState = !d.isOnline;
+        showToast(`Driver ${d.name} is now ${nextState ? 'Online' : 'Offline'}`, 'info');
+        return { ...d, isOnline: nextState };
+      }
+      return d;
+    }));
+  };
+
+  const updateFareConfig = (config: Partial<FareConfig>) => {
+    setFareConfig(prev => ({ ...prev, ...config }));
+    showToast('Ride-hailing tariff rates updated across Kogi State', 'success', 'Fares Recalculated');
+  };
+
+  // --- ADMIN CMS: Business Profile & Global Announcement ---
+  const updateBusinessInfo = (info: Partial<BusinessInfoConfig>) => {
+    setBusinessInfo(prev => {
+      const updated = { ...prev, ...info };
+      return updated;
+    });
+    showToast('Store details, contact, and business settings updated successfully', 'success', 'Site Config Saved');
+  };
+
+  const updateAnnouncement = (config: Partial<AnnouncementConfig>) => {
+    setAnnouncement(prev => ({ ...prev, ...config }));
+    showToast('Global announcement banner updated', 'success');
+  };
+
+  // --- SYSTEM TOOLS: Backup & Factory Reset ---
+  const resetAllToFactoryDefaults = () => {
+    setProducts(INITIAL_PRODUCTS);
+    setBespokeSamples(BESPOKE_TAILORING_SAMPLES);
+    setCakeSamples(CAKE_CUSTOM_SAMPLES);
+    setCateringPackages(CATERING_PACKAGES);
+    setCateringDishes(CATERING_SAMPLE_DISHES);
+    setTransportRoutes(TRANSPORT_SAMPLE_ROUTES);
+    setDrivers(INITIAL_DRIVERS);
+    setBusinessInfo(INITIAL_BUSINESS_CONFIG);
+    setAnnouncement(INITIAL_ANNOUNCEMENT_CONFIG);
+    setFareConfig(INITIAL_FARE_CONFIG);
+    setOrders(INITIAL_ORDERS);
+    localStorage.removeItem('fdc_products');
+    localStorage.removeItem('fdc_bespoke_samples');
+    localStorage.removeItem('fdc_cake_samples');
+    localStorage.removeItem('fdc_catering_packages');
+    localStorage.removeItem('fdc_catering_dishes');
+    localStorage.removeItem('fdc_transport_routes');
+    localStorage.removeItem('fdc_drivers');
+    localStorage.removeItem('fdc_business_config');
+    localStorage.removeItem('fdc_announcement_config');
+    localStorage.removeItem('fdc_fare_config');
+    localStorage.removeItem('fdc_orders');
+    showToast('System configuration, sample menus, and products reset to defaults.', 'warning', 'Reset Complete');
+  };
+
+  const exportSiteDataBackup = (): string => {
+    const data = {
+      products,
+      bespokeSamples,
+      cakeSamples,
+      cateringPackages,
+      cateringDishes,
+      transportRoutes,
+      drivers,
+      businessInfo,
+      announcement,
+      fareConfig,
+      orders,
+      exportedAt: new Date().toISOString()
+    };
+    return JSON.stringify(data, null, 2);
+  };
+
+  const importSiteDataBackup = (jsonData: string): boolean => {
+    try {
+      const data = JSON.parse(jsonData);
+      if (data.products) setProducts(data.products);
+      if (data.bespokeSamples) setBespokeSamples(data.bespokeSamples);
+      if (data.cakeSamples) setCakeSamples(data.cakeSamples);
+      if (data.cateringPackages) setCateringPackages(data.cateringPackages);
+      if (data.cateringDishes) setCateringDishes(data.cateringDishes);
+      if (data.transportRoutes) setTransportRoutes(data.transportRoutes);
+      if (data.drivers) setDrivers(data.drivers);
+      if (data.businessInfo) setBusinessInfo(data.businessInfo);
+      if (data.announcement) setAnnouncement(data.announcement);
+      if (data.fareConfig) setFareConfig(data.fareConfig);
+      if (data.orders) setOrders(data.orders);
+      showToast('Site data & features successfully restored from backup!', 'success', 'Import Successful');
+      return true;
+    } catch (e) {
+      showToast('Failed to parse backup JSON file. Please verify the format.', 'error', 'Import Failed');
+      return false;
+    }
+  };
+
+  // --- Orders & Inquiries ---
   const createOrder = (orderData: Omit<Order, 'id' | 'orderNumber' | 'createdAt'>): Order => {
     const orderNumber = `FDC-ORD-${Math.floor(1000 + Math.random() * 9000)}`;
     const newOrder: Order = {
@@ -456,66 +855,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return {
           ...o,
           orderStatus: status,
-          ...(paymentStatus ? { paymentStatus } : {})
+          paymentStatus: paymentStatus || o.paymentStatus
         };
       }
       return o;
     }));
-    showToast(`Order status updated to ${status}`, 'info');
+    showToast(`Order status updated to "${status}"`, 'info');
   };
 
   const createTailoringRequest = (data: Omit<TailoringRequest, 'id' | 'createdAt' | 'status' | 'paymentStatus'>): TailoringRequest => {
-    const newRequest: TailoringRequest = {
+    const newReq: TailoringRequest = {
       ...data,
       id: `tailor-${Date.now()}`,
-      status: 'APPROVED', // Once online payment is made, automatically approved to production
+      status: 'APPROVED',
       paymentStatus: 'PAID',
       createdAt: new Date().toISOString()
     };
-    setTailoringRequests(prev => [newRequest, ...prev]);
-    showToast(`Tailoring request for "${data.garmentType}" received and paid!`, 'success', 'Bespoke Order Logged');
-    return newRequest;
+    setTailoringRequests(prev => [newReq, ...prev]);
+    showToast('Bespoke Tailoring Commission placed and paid online!', 'success', 'Commission Received');
+    return newReq;
   };
 
   const updateTailoringStatus = (id: string, status: TailoringRequest['status'], paymentStatus?: TailoringRequest['paymentStatus']) => {
-    setTailoringRequests(prev => prev.map(t => {
-      if (t.id === id) {
-        return {
-          ...t,
-          status,
-          ...(paymentStatus ? { paymentStatus } : {})
-        };
-      }
-      return t;
-    }));
-    showToast(`Tailoring job status updated to ${status}`, 'info');
+    setTailoringRequests(prev => prev.map(t => t.id === id ? { ...t, status, paymentStatus: paymentStatus || t.paymentStatus } : t));
+    showToast(`Tailoring commission status updated to "${status}"`, 'info');
   };
 
   const createCakeOrder = (data: Omit<CakeOrder, 'id' | 'createdAt' | 'status' | 'paymentStatus'>): CakeOrder => {
-    const newOrder: CakeOrder = {
+    const newCake: CakeOrder = {
       ...data,
       id: `cake-${Date.now()}`,
       status: 'DESIGN_CONFIRMED',
       paymentStatus: 'PAID',
       createdAt: new Date().toISOString()
     };
-    setCakeOrders(prev => [newOrder, ...prev]);
-    showToast(`Custom cake order booked for delivery on ${data.deliveryDate}!`, 'success', 'Bakery Slot Reserved');
-    return newOrder;
+    setCakeOrders(prev => [newCake, ...prev]);
+    showToast('Custom Celebration Cake order placed and scheduled!', 'success', 'Baking Scheduled');
+    return newCake;
   };
 
   const updateCakeStatus = (id: string, status: CakeOrder['status'], paymentStatus?: CakeOrder['paymentStatus']) => {
-    setCakeOrders(prev => prev.map(c => {
-      if (c.id === id) {
-        return {
-          ...c,
-          status,
-          ...(paymentStatus ? { paymentStatus } : {})
-        };
-      }
-      return c;
-    }));
-    showToast(`Cake order status updated to ${status}`, 'info');
+    setCakeOrders(prev => prev.map(c => c.id === id ? { ...c, status, paymentStatus: paymentStatus || c.paymentStatus } : c));
+    showToast(`Cake order status updated to "${status}"`, 'info');
   };
 
   const createCateringBooking = (data: Omit<CateringBooking, 'id' | 'createdAt' | 'status' | 'paymentStatus'>): CateringBooking => {
@@ -527,25 +908,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdAt: new Date().toISOString()
     };
     setCateringBookings(prev => [newBooking, ...prev]);
-    showToast(`Catering reservation confirmed for ${data.eventType} (${data.expectedGuests} guests)!`, 'success', 'Event Booked');
+    showToast('Royal Catering Booking confirmed and reserved!', 'success', 'Date Secured');
     return newBooking;
   };
 
   const updateCateringStatus = (id: string, status: CateringBooking['status'], paymentStatus?: CateringBooking['paymentStatus']) => {
-    setCateringBookings(prev => prev.map(c => {
-      if (c.id === id) {
-        return {
-          ...c,
-          status,
-          ...(paymentStatus ? { paymentStatus } : {})
-        };
-      }
-      return c;
-    }));
-    showToast(`Catering booking updated to ${status}`, 'info');
+    setCateringBookings(prev => prev.map(c => c.id === id ? { ...c, status, paymentStatus: paymentStatus || c.paymentStatus } : c));
+    showToast(`Catering booking status updated to "${status}"`, 'info');
   };
 
-  // Ride Hailing operations
   const requestRide = (data: {
     customerName: string;
     customerPhone: string;
@@ -557,14 +928,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     totalFare: number;
     paymentMethod: RideRequest['paymentMethod'];
   }): RideRequest | null => {
-    // 1. Strict Boundary Check: MUST BE WITHIN KOGI STATE
-    if (!data.pickupLocation.isWithinKogi || !data.destinationLocation.isWithinKogi) {
-      showToast('Ride-hailing is restricted strictly within Kogi State boundaries (Okene hub).', 'error', 'Geofence Violation');
-      return null;
-    }
-
-    // Select matched driver based on vehicle type (KEKE or CAR)
-    const assignedDriver = drivers.find(d => d.vehicleType === data.vehicleType && d.isOnline) || drivers[0];
+    const eligibleDrivers = drivers.filter(d => d.vehicleType === data.vehicleType && d.isOnline);
+    const assignedDriver = eligibleDrivers.length > 0 ? eligibleDrivers[Math.floor(Math.random() * eligibleDrivers.length)] : drivers[0];
 
     const newRide: RideRequest = {
       id: `ride-${Date.now()}`,
@@ -575,108 +940,94 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       vehicleType: data.vehicleType,
       distanceKm: data.distanceKm,
       estimatedMinutes: data.estimatedMinutes,
-      baseFare: data.vehicleType === 'KEKE' ? 300 : 800,
-      distanceFare: Math.round(data.distanceKm * (data.vehicleType === 'KEKE' ? 120 : 250)),
-      timeFare: Math.round(data.estimatedMinutes * 30),
+      baseFare: data.vehicleType === 'KEKE' ? fareConfig.kekeBaseFare : fareConfig.carBaseFare,
+      distanceFare: data.totalFare - (data.vehicleType === 'KEKE' ? fareConfig.kekeBaseFare : fareConfig.carBaseFare),
+      timeFare: 0,
       totalFare: data.totalFare,
-      paymentMethod: data.paymentMethod as any,
-      paymentStatus: 'PAID', // Strict 100% upfront online payment verified
+      paymentMethod: data.paymentMethod,
+      paymentStatus: 'PAID',
       paymentVerifiedAt: new Date().toISOString(),
-      paymentGatewayRef: `FDC-TXN-${Date.now().toString().slice(-6)}`,
+      paymentGatewayRef: `FLW_KOGI_${Math.floor(100000 + Math.random() * 900000)}`,
       status: 'DRIVER_ASSIGNED',
       driver: assignedDriver,
       createdAt: new Date().toISOString()
     };
 
     setActiveRide(newRide);
-    
-    showToast(`100% Upfront payment verified! Driver ${assignedDriver.name} dispatched with ${data.vehicleType === 'KEKE' ? 'Keke' : 'Car'}.`, 'success', 'Driver Assigned');
-
-    // Trigger automatic confirmation alert to passenger & admin (09162723865)
-    sendReceiptNotification(newRide);
+    setRideHistory(prev => [newRide, ...prev]);
+    showToast(`Driver ${assignedDriver.name} (${assignedDriver.plateNumber}) dispatched!`, 'success', 'Ride Dispatched');
     return newRide;
   };
 
   const cancelRide = (rideId: string) => {
     if (activeRide && activeRide.id === rideId) {
-      const cancelled = { ...activeRide, status: 'CANCELLED' as const };
-      setRideHistory(prev => [cancelled, ...prev]);
+      const updated = { ...activeRide, status: 'CANCELLED' as const };
       setActiveRide(null);
-      showToast('Ride cancelled. Status updated.', 'info');
+      setRideHistory(prev => prev.map(r => r.id === rideId ? updated : r));
+      showToast('Ride trip cancelled', 'info');
     }
   };
 
   const completeRide = (rideId: string) => {
     if (activeRide && activeRide.id === rideId) {
-      const completed = { 
-        ...activeRide, 
-        status: 'TRIP_COMPLETED' as const,
-        completedAt: new Date().toISOString() 
-      };
-      setRideHistory(prev => [completed, ...prev]);
+      const updated = { ...activeRide, status: 'TRIP_COMPLETED' as const, completedAt: new Date().toISOString() };
       setActiveRide(null);
-      showToast('Trip completed! Thank you for riding with Flourish Destiny.', 'success', 'Arrived Safely');
-      setActiveInvoice(completed);
-      sendReceiptNotification(completed);
+      setRideHistory(prev => prev.map(r => r.id === rideId ? updated : r));
+      showToast('Trip marked completed. Thank you for riding with Flourish Destiny!', 'success', 'Trip Completed');
     }
   };
 
-  // Backend Verification Safeguards
-  const verifyOrderCoDPayment = (orderId: string, verifiedBy: string = 'HQ Admin / Dispatch Agent') => {
-    setOrders(prev => prev.map(order => {
-      if (order.id === orderId) {
-        const updated: Order = {
-          ...order,
+  const verifyOrderCoDPayment = (orderId: string, verifiedBy: string = 'HQ Admin (09162723865)') => {
+    setOrders(prev => prev.map(o => {
+      if (o.id === orderId) {
+        return {
+          ...o,
           paymentStatus: 'PAID',
           paymentVerifiedBy: verifiedBy,
-          paymentVerifiedAt: new Date().toISOString()
+          paymentVerifiedAt: new Date().toISOString(),
+          orderStatus: o.orderStatus === 'DELIVERED' ? 'DELIVERED' : 'PROCESSING'
         };
-        showToast(`CoD Payment for Order ${order.orderNumber} verified and marked as PAID!`, 'success', 'Payment Verified');
-        sendReceiptNotification(updated);
-        return updated;
       }
-      return order;
+      return o;
     }));
+    showToast(`Order ${orderId} Cash on Delivery verified & settled`, 'success', 'CoD Verified');
   };
 
-  const verifyRidePayment = (rideId: string, verifiedBy: string = 'Driver Suleiman Yusuf') => {
-    if (activeRide && activeRide.id === rideId) {
-      const updatedRide = {
-        ...activeRide,
-        paymentStatus: 'PAID' as const,
-        paymentVerifiedBy: verifiedBy,
-        paymentCollectedAt: new Date().toISOString()
-      };
-      setActiveRide(updatedRide);
-      showToast(`Trip fare payment verified by ${verifiedBy}!`, 'success', 'Payment Collected');
-      return;
-    }
-
+  const verifyRidePayment = (rideId: string, verifiedBy: string = 'HQ Transport Admin') => {
     setRideHistory(prev => prev.map(r => {
       if (r.id === rideId) {
-        const updated = {
+        return {
           ...r,
-          paymentStatus: 'PAID' as const,
-          paymentVerifiedBy: verifiedBy,
-          paymentCollectedAt: new Date().toISOString()
+          paymentStatus: 'PAID',
+          paymentVerifiedAt: new Date().toISOString(),
+          paymentGatewayRef: r.paymentGatewayRef || `MANUAL_VERIFIED_${verifiedBy}`
         };
-        showToast(`Trip ${r.id} marked as PAID.`, 'success');
-        return updated;
       }
       return r;
     }));
+    if (activeRide && activeRide.id === rideId) {
+      setActiveRide(prev => prev ? { ...prev, paymentStatus: 'PAID', paymentVerifiedAt: new Date().toISOString() } : null);
+    }
+    showToast(`Trip ${rideId} fare confirmed & verified`, 'success', 'Fare Cleared');
   };
 
   const sendReceiptNotification = (doc: any, channel: 'WHATSAPP' | 'SMS' = 'WHATSAPP') => {
-    const docId = doc.orderNumber || doc.id || 'TXN';
-    const amount = doc.total || doc.totalFare || doc.totalQuote || doc.estimatedCost || doc.estimatedPrice || 0;
-    const phone = doc.customerPhone || doc.recipientPhone || '09162723865';
-    
-    showToast(
-      `Instant receipt & invoice dispatched via ${channel} to ${phone} and HQ (09162723865) for ref ${docId} (₦${amount.toLocaleString()})`,
-      'info',
-      'SMS / WhatsApp Receipt Sent'
+    const ref = doc.orderNumber || doc.id || 'REF';
+    const amount = doc.total || doc.totalFare || doc.totalQuote || doc.estimatedPrice || doc.depositPaid || 0;
+    const phone = doc.customerPhone || businessInfo.phone;
+    const message = encodeURIComponent(
+      `*FLOURISH DESTINY COLLECTION - OFFICIAL RECEIPT*\n` +
+      `----------------------------------------\n` +
+      `Reference: ${ref}\n` +
+      `Amount Settled: ₦${amount.toLocaleString()}\n` +
+      `Date: ${new Date().toLocaleDateString()}\n` +
+      `Location: Okene, Kogi State\n` +
+      `HQ Helpline: ${businessInfo.phone}\n` +
+      `Thank you for trusting Flourish Destiny Collection!`
     );
+    const targetUrl = `https://wa.me/${phone.replace(/[^0-9]/g, '')}?text=${message}`;
+    window.open(targetUrl, '_blank');
+    showToast(`Official receipt dispatched via ${channel} to ${phone}`, 'success', 'Receipt Dispatched');
   };
 
   return (
@@ -689,6 +1040,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         products,
         addProduct,
         updateProduct,
+        deleteProduct,
+        toggleProductInStock,
+        quickUpdateProductPrice,
+        bespokeSamples,
+        addBespokeSample,
+        updateBespokeSample,
+        deleteBespokeSample,
+        cakeSamples,
+        addCakeSample,
+        updateCakeSample,
+        deleteCakeSample,
+        cateringPackages,
+        addCateringPackage,
+        updateCateringPackage,
+        deleteCateringPackage,
+        cateringDishes,
+        addCateringDish,
+        updateCateringDish,
+        deleteCateringDish,
+        transportRoutes,
+        addTransportRoute,
+        updateTransportRoute,
+        deleteTransportRoute,
+        drivers,
+        addDriver,
+        updateDriver,
+        deleteDriver,
+        toggleDriverOnline,
+        fareConfig,
+        updateFareConfig,
+        businessInfo,
+        updateBusinessInfo,
+        announcement,
+        updateAnnouncement,
+        resetAllToFactoryDefaults,
+        exportSiteDataBackup,
+        importSiteDataBackup,
         cart,
         addToCart,
         updateCartQuantity,
@@ -714,7 +1102,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateCateringStatus,
         activeRide,
         rideHistory,
-        drivers,
         requestRide,
         cancelRide,
         completeRide,

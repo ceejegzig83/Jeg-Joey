@@ -22,7 +22,7 @@ interface BakeryCatalogProps {
 }
 
 export const BakeryCatalog: React.FC<BakeryCatalogProps> = ({ onOpenCustomCakeModal }) => {
-  const { products, addToCart, searchQuery } = useApp();
+  const { products, addToCart, searchQuery, cakeSamples } = useApp();
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
 
   const bakeryProducts = products.filter(p => p.division === 'BAKERY');
@@ -197,7 +197,7 @@ export const BakeryCatalog: React.FC<BakeryCatalogProps> = ({ onOpenCustomCakeMo
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {CAKE_CUSTOM_SAMPLES.map((sample) => (
+          {cakeSamples.map((sample) => (
             <div
               key={sample.id}
               className="bg-white rounded-3xl overflow-hidden border border-stone-200 shadow-xs hover:shadow-md transition-all flex flex-col justify-between"

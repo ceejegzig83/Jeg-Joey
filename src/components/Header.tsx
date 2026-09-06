@@ -38,7 +38,9 @@ export const Header: React.FC = () => {
     setIsAdminLoginModalOpen,
     setIsContactModalOpen,
     searchQuery,
-    setSearchQuery
+    setSearchQuery,
+    businessInfo,
+    announcement
   } = useApp();
 
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
@@ -57,39 +59,40 @@ export const Header: React.FC = () => {
   return (
     <header className="sticky top-0 z-40 bg-stone-900 text-stone-100 shadow-md border-b border-stone-800">
       {/* Top Utility Announcement Bar */}
-      <div className="bg-gradient-to-r from-amber-700 via-amber-600 to-amber-700 text-stone-950 px-4 py-1.5 text-xs font-medium">
-        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
-          {/* Location & Tag */}
-          <div className="flex items-center gap-2">
-            <span className="flex items-center gap-1 font-semibold">
-              <MapPin className="w-3.5 h-3.5" /> Okene, Kogi State
-            </span>
-            <span className="hidden md:inline text-stone-900/60">•</span>
-            <span className="hidden md:inline">Hub Base & Intra-State Transport</span>
-          </div>
+      {announcement.enabled && (
+        <div className="bg-gradient-to-r from-amber-700 via-amber-600 to-amber-700 text-stone-950 px-4 py-1.5 text-xs font-medium">
+          <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
+            {/* Location & Tag */}
+            <div className="flex items-center gap-2">
+              <span className="flex items-center gap-1 font-bold bg-stone-950/20 px-2 py-0.5 rounded-full text-[11px]">
+                <MapPin className="w-3.5 h-3.5" /> {businessInfo.location}
+              </span>
+              <span className="hidden md:inline font-semibold">{announcement.message}</span>
+            </div>
 
-          {/* Contact Direct Phone & WhatsApp Actions */}
-          <div className="flex items-center gap-3 ml-auto">
-            <a 
-              href={`tel:${BUSINESS_INFO.phone}`}
-              className="flex items-center gap-1.5 bg-stone-950 text-amber-300 px-2.5 py-0.5 rounded-full text-xs font-bold hover:bg-stone-900 transition-colors shadow-xs"
-            >
-              <Phone className="w-3 h-3 text-amber-400" />
-              <span>Call: {BUSINESS_INFO.phone}</span>
-            </a>
+            {/* Contact Direct Phone & WhatsApp Actions */}
+            <div className="flex items-center gap-3 ml-auto">
+              <a 
+                href={`tel:${businessInfo.phone}`}
+                className="flex items-center gap-1.5 bg-stone-950 text-amber-300 px-2.5 py-0.5 rounded-full text-xs font-bold hover:bg-stone-900 transition-colors shadow-xs"
+              >
+                <Phone className="w-3 h-3 text-amber-400" />
+                <span>Call: {businessInfo.phone}</span>
+              </a>
 
-            <a
-              href={BUSINESS_INFO.whatsappUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1 bg-emerald-700 text-white px-2 py-0.5 rounded-full text-xs font-semibold hover:bg-emerald-800 transition-colors"
-            >
-              <MessageSquare className="w-3 h-3" />
-              <span>WhatsApp</span>
-            </a>
+              <a
+                href={businessInfo.whatsappUrl || `https://wa.me/234${businessInfo.phone.replace(/^0/, '')}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 bg-emerald-700 text-white px-2 py-0.5 rounded-full text-xs font-semibold hover:bg-emerald-800 transition-colors"
+              >
+                <MessageSquare className="w-3 h-3" />
+                <span>WhatsApp</span>
+              </a>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Main Header Bar */}
       <div className="max-w-7xl mx-auto px-4 py-3 sm:px-6">

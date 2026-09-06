@@ -1,15 +1,59 @@
-import { Product, CateringPackage, LocationPoint, Driver, Order } from '../types';
+import { 
+  Product, 
+  CateringPackage, 
+  LocationPoint, 
+  Driver, 
+  Order,
+  BusinessInfoConfig,
+  AnnouncementConfig,
+  FareConfig,
+  BespokeTailoringSample,
+  CakeCustomSample,
+  CateringSampleDish,
+  TransportSampleRoute
+} from '../types';
 
-export const BUSINESS_INFO = {
+export const INITIAL_BUSINESS_CONFIG: BusinessInfoConfig = {
   name: 'FLOURISH DESTINY COLLECTION',
   subtitle: 'Multi-Service Commerce, Hospitality & Logistics Platform',
   location: 'Okene, Kogi State, Nigeria',
   address: 'No. 14 Inoziomi Road, Off Total Junction, Okene, Kogi State',
   phone: '09162723865',
   formattedPhone: '+234 916 272 3865',
+  whatsappNumber: '09162723865',
   whatsappUrl: 'https://wa.me/2349162723865?text=Hello%20Flourish%20Destiny%20Collection,%20I%20would%20like%20to%20make%20an%20inquiry.',
   email: 'info@flourishdestiny.ng',
   workingHours: 'Mon - Sat: 7:30 AM - 9:00 PM | Sun: 12:00 PM - 8:00 PM',
+  bankName: 'Access Bank / Moniepoint MFB',
+  bankAccountNumber: '09162723865',
+  bankAccountName: 'Flourish Destiny Collection HQ',
+  divisionsEnabled: {
+    FASHION: true,
+    BAKERY: true,
+    CATERING: true,
+    GROCERY: true,
+    TRANSPORT: true,
+  }
+};
+
+export const INITIAL_ANNOUNCEMENT_CONFIG: AnnouncementConfig = {
+  enabled: true,
+  badgeText: 'Kogi Okene Hub Special',
+  message: '🚚 Free local delivery in Okene town for Grocery & Ready-to-Wear orders over ₦15,000! Official Hotline: 09162723865.',
+  actionText: 'Shop Groceries',
+  actionDivision: 'GROCERY'
+};
+
+export const INITIAL_FARE_CONFIG: FareConfig = {
+  kekeBaseFare: 300,
+  kekePerKm: 150,
+  carBaseFare: 800,
+  carPerKm: 250,
+  surgeMultiplier: 1.0
+};
+
+export const BUSINESS_INFO = {
+  ...INITIAL_BUSINESS_CONFIG,
   divisions: [
     { id: 'FASHION', name: 'Fashion Store', tag: 'Clothing & Custom Tailoring', icon: 'Sparkles', color: 'from-amber-600 to-amber-800' },
     { id: 'BAKERY', name: 'Artisanal Bakery', tag: 'Fresh Bread, Pastries & Custom Cakes', icon: 'Cake', color: 'from-orange-500 to-amber-700' },

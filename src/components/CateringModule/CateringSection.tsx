@@ -21,7 +21,7 @@ import {
 import { motion } from 'motion/react';
 
 export const CateringSection: React.FC = () => {
-  const { userProfile, createCateringBooking, showToast, cateringBookings } = useApp();
+  const { userProfile, createCateringBooking, showToast, cateringBookings, cateringPackages, cateringDishes } = useApp();
 
   // Selected package state
   const [selectedPackageId, setSelectedPackageId] = useState<string>('cat-standard');
@@ -49,7 +49,7 @@ export const CateringSection: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
 
-  const selectedPkg = CATERING_PACKAGES.find(p => p.id === selectedPackageId) || CATERING_PACKAGES[1];
+  const selectedPkg = cateringPackages.find(p => p.id === selectedPackageId) || cateringPackages[0] || CATERING_PACKAGES[1];
 
   // Dynamic Quote Calculation
   const baseFoodCost = selectedPkg.pricePerGuest * guestCount;
@@ -168,7 +168,7 @@ export const CateringSection: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {CATERING_PACKAGES.map((pkg) => {
+          {cateringPackages.map((pkg) => {
             const isSelected = selectedPackageId === pkg.id;
 
             return (
@@ -261,7 +261,7 @@ export const CateringSection: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {CATERING_SAMPLE_DISHES.map((dish) => (
+          {cateringDishes.map((dish) => (
             <div
               key={dish.id}
               className="bg-white rounded-3xl overflow-hidden border border-stone-200 shadow-xs hover:shadow-md transition-all flex flex-col justify-between"

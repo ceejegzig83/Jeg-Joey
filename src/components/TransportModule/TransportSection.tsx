@@ -21,7 +21,7 @@ import {
 import { motion } from 'motion/react';
 
 export const TransportSection: React.FC = () => {
-  const { activeRide, requestRide, userProfile, showToast } = useApp();
+  const { activeRide, requestRide, userProfile, showToast, transportRoutes, fareConfig } = useApp();
 
   // Location selector (Default origin: Okene Hub)
   const [pickupLocation, setPickupLocation] = useState<LocationPoint>(KOGI_LOCATIONS[0]); // Okene Total Junction
@@ -50,11 +50,11 @@ export const TransportSection: React.FC = () => {
 
   // Dynamic Fare calculation based on Vehicle Type (Keke vs Car)
   const calculateFare = (vType: VehicleType, dist: number, mins: number) => {
-    const base = vType === 'KEKE' ? 300 : 800;
-    const perKm = vType === 'KEKE' ? 120 : 250;
+    const base = vType === 'KEKE' ? fareConfig.kekeBaseFare : fareConfig.carBaseFare;
+    const perKm = vType === 'KEKE' ? fareConfig.kekePerKm : fareConfig.carPerKm;
     const distFare = Math.round(dist * perKm);
     const timeFare = Math.round(mins * 25);
-    return base + distFare + timeFare;
+    return Math.round((base + distFare + timeFare) * (fareConfig.surgeMultiplier || 1.0));
   };
 
   const totalFare = calculateFare(vehicleType, distanceKm, estimatedMinutes);
@@ -448,7 +448,7 @@ export const TransportSection: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {TRANSPORT_SAMPLE_ROUTES.map((route) => (
+          {transportRoutes.map((route) => (
             <div
               key={route.id}
               className="bg-white rounded-3xl overflow-hidden border border-stone-200 shadow-xs hover:shadow-md transition-all flex flex-col justify-between"

@@ -238,3 +238,89 @@ export interface UserProfile {
   defaultArea: string;
   role: 'CUSTOMER' | 'DRIVER' | 'ADMIN';
 }
+
+export interface BespokeTailoringSample {
+  id: string;
+  name: string;
+  category: string;
+  price: number;
+  image: string;
+  description: string;
+  turnaroundDays: number;
+  fabric: string;
+  badge?: string;
+}
+
+export interface CakeCustomSample {
+  id: string;
+  name: string;
+  tier: string;
+  flavor: string;
+  servings: string;
+  price: number;
+  image: string;
+  design: string;
+  badge?: string;
+}
+
+export interface CateringSampleDish {
+  id: string;
+  name: string;
+  category: string;
+  pricePerPortion: number;
+  image: string;
+  description: string;
+  isEbiraSpecialty?: boolean;
+}
+
+export interface TransportSampleRoute {
+  id: string;
+  pickup: string;
+  destination: string;
+  distanceKm: number;
+  kekeFare: number;
+  carFare: number;
+  durationMins: number;
+  image: string;
+  description: string;
+}
+
+export interface BusinessInfoConfig {
+  name: string;
+  subtitle: string;
+  location: string;
+  address: string;
+  phone: string;
+  formattedPhone: string;
+  whatsappNumber: string;
+  whatsappUrl: string;
+  email: string;
+  workingHours: string;
+  bankName: string;
+  bankAccountNumber: string;
+  bankAccountName: string;
+  divisionsEnabled: {
+    FASHION: boolean;
+    BAKERY: boolean;
+    CATERING: boolean;
+    GROCERY: boolean;
+    TRANSPORT: boolean;
+  };
+}
+
+export interface AnnouncementConfig {
+  enabled: boolean;
+  badgeText: string;
+  message: string;
+  actionText: string;
+  actionDivision?: Division;
+}
+
+export interface FareConfig {
+  kekeBaseFare: number;
+  kekePerKm: number;
+  carBaseFare: number;
+  carPerKm: number;
+  surgeMultiplier: number;
+}
+

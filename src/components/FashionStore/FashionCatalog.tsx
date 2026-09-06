@@ -27,7 +27,7 @@ export const FashionCatalog: React.FC<FashionCatalogProps> = ({
   onOpenTailoringModal,
   onOpenTailoringTracker
 }) => {
-  const { products, addToCart, searchQuery, tailoringRequests } = useApp();
+  const { products, addToCart, searchQuery, tailoringRequests, bespokeSamples } = useApp();
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [selectedGender, setSelectedGender] = useState<string>('ALL');
   const [selectedSizeMap, setSelectedSizeMap] = useState<Record<string, string>>({});
@@ -271,7 +271,7 @@ export const FashionCatalog: React.FC<FashionCatalogProps> = ({
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {BESPOKE_TAILORING_SAMPLES.map((sample) => (
+          {bespokeSamples.map((sample) => (
             <div
               key={sample.id}
               className="bg-white rounded-3xl overflow-hidden border border-stone-200 shadow-xs hover:shadow-md transition-all flex flex-col justify-between"
