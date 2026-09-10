@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Product } from '../../types';
 import { X, Sparkles, Upload, Tag, DollarSign, Package, AlertCircle } from 'lucide-react';
+import { ImageUploadField } from './ImageUploadField';
 
 interface ProductFormModalProps {
   isOpen: boolean;
@@ -271,35 +272,14 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             </div>
           </div>
 
-          {/* Image URL & Preset Selection */}
-          <div className="space-y-2">
-            <label className="block font-bold text-stone-700">Product Image URL *</label>
-            <input
-              type="url"
-              required
-              value={image}
-              onChange={(e) => setImage(e.target.value)}
-              placeholder="https://images.unsplash.com/..."
-              className="w-full p-2.5 bg-stone-50 border border-stone-300 rounded-xl font-mono text-[11px] text-stone-900 focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
-            />
-            
-            {/* Quick preset selector */}
-            <div className="pt-1">
-              <span className="text-[11px] text-stone-500 block mb-1.5 font-semibold">Or Pick a Quick High-Res Photo Preset:</span>
-              <div className="flex flex-wrap gap-1.5">
-                {PRESET_IMAGES.filter(p => p.division === division).map((preset, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => setImage(preset.url)}
-                    className="px-2.5 py-1 rounded-lg bg-stone-100 hover:bg-amber-100 text-stone-800 hover:text-amber-900 border border-stone-200 text-[10px] font-bold transition-colors"
-                  >
-                    📷 {preset.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
+          {/* Product Image Upload with strict .jpg, .jpeg, .png and 2MB limit */}
+          <ImageUploadField
+            value={image}
+            onChange={(url) => setImage(url)}
+            label="Product Catalog Image"
+            presetImages={PRESET_IMAGES}
+            currentDivision={division}
+          />
 
           {/* Description */}
           <div>

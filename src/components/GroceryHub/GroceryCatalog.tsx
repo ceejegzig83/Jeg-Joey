@@ -132,13 +132,13 @@ export const GroceryCatalog: React.FC = () => {
               animate={{ opacity: 1, y: 0 }}
               className="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-xs hover:shadow-md transition-all flex flex-col justify-between group"
             >
-              {/* Image */}
-              <div className="relative h-48 w-full bg-stone-100 overflow-hidden">
+              {/* Image: Standardized 1:1 Square Aspect Ratio with centerCrop */}
+              <div className="relative aspect-square w-full bg-stone-100 overflow-hidden">
                 <img
                   src={product.image}
                   alt={product.name}
                   referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300"
                 />
                 {product.badge && (
                   <span className="absolute top-2.5 left-2.5 text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-800 text-emerald-100 shadow-xs">

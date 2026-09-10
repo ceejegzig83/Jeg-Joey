@@ -717,11 +717,11 @@ export const AdminDashboard: React.FC = () => {
                   key={sample.id}
                   className="bg-stone-50 rounded-2xl border border-stone-200 overflow-hidden flex flex-col justify-between"
                 >
-                  <div className="relative aspect-16/9 bg-stone-200">
+                  <div className="relative aspect-square w-full bg-stone-200 overflow-hidden">
                     <img
                       src={sample.image}
                       alt={sample.name}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-cover object-center"
                       referrerPolicy="no-referrer"
                     />
                     <span className="absolute bottom-2 right-2 px-2 py-0.5 bg-stone-900/90 text-amber-300 font-bold text-xs rounded-md">
@@ -867,11 +867,11 @@ export const AdminDashboard: React.FC = () => {
                   key={cake.id}
                   className="bg-stone-50 rounded-2xl border border-stone-200 overflow-hidden flex flex-col justify-between"
                 >
-                  <div className="relative aspect-16/9 bg-stone-200">
+                  <div className="relative aspect-square w-full bg-stone-200 overflow-hidden">
                     <img
                       src={cake.image}
                       alt={cake.name}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-cover object-center"
                       referrerPolicy="no-referrer"
                     />
                     <span className="absolute bottom-2 right-2 px-2 py-0.5 bg-stone-900/90 text-orange-400 font-bold text-xs rounded-md">
@@ -1093,11 +1093,11 @@ export const AdminDashboard: React.FC = () => {
                   key={dish.id}
                   className="bg-stone-50 rounded-2xl border border-stone-200 overflow-hidden flex flex-col justify-between"
                 >
-                  <div className="relative aspect-16/9 bg-stone-200">
+                  <div className="relative aspect-square w-full bg-stone-200 overflow-hidden">
                     <img
                       src={dish.image}
                       alt={dish.name}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-cover object-center"
                       referrerPolicy="no-referrer"
                     />
                     <span className="absolute bottom-2 right-2 px-2 py-0.5 bg-stone-900/90 text-rose-300 font-bold text-xs rounded-md">

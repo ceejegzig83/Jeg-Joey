@@ -267,11 +267,12 @@ export const CateringSection: React.FC = () => {
               className="bg-white rounded-3xl overflow-hidden border border-stone-200 shadow-xs hover:shadow-md transition-all flex flex-col justify-between"
             >
               <div>
-                <div className="relative aspect-4/3 overflow-hidden bg-stone-100">
+                {/* Dish Image: Standardized 1:1 Square Aspect Ratio with centerCrop */}
+                <div className="relative aspect-square w-full overflow-hidden bg-stone-100">
                   <img
                     src={dish.image}
                     alt={dish.name}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300"
                     referrerPolicy="no-referrer"
                   />
                   {dish.isEbiraSpecialty ? (

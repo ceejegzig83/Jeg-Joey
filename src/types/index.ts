@@ -155,7 +155,9 @@ export interface LocationPoint {
   name: string;
   address: string;
   area: string;
-  lga: string; // Local Govt Area in Kogi State (e.g., Okene, Adavi, Okehi, Ajaokuta, Lokoja)
+  lga: string; // Local Govt Area in Kogi State (all 21 LGAs)
+  ward?: string; // Electoral / Administrative Ward
+  street?: string; // Street / Road / Avenue
   isWithinKogi: boolean;
   latitude: number;
   longitude: number;

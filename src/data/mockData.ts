@@ -6,11 +6,7 @@ import {
   Order,
   BusinessInfoConfig,
   AnnouncementConfig,
-  FareConfig,
-  BespokeTailoringSample,
-  CakeCustomSample,
-  CateringSampleDish,
-  TransportSampleRoute
+  FareConfig
 } from '../types';
 
 export const INITIAL_BUSINESS_CONFIG: BusinessInfoConfig = {

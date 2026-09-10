@@ -112,13 +112,13 @@ export const BakeryCatalog: React.FC<BakeryCatalogProps> = ({ onOpenCustomCakeMo
             animate={{ opacity: 1, y: 0 }}
             className="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-xs hover:shadow-md transition-all flex flex-col justify-between group"
           >
-            {/* Image */}
-            <div className="relative h-60 w-full bg-stone-100 overflow-hidden">
+            {/* Image: Standardized 1:1 Square Aspect Ratio with centerCrop */}
+            <div className="relative aspect-square w-full bg-stone-100 overflow-hidden">
               <img
                 src={product.image}
                 alt={product.name}
                 referrerPolicy="no-referrer"
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300"
               />
               {product.badge && (
                 <span className="absolute top-3 left-3 text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full bg-amber-500 text-stone-950 shadow-xs">
@@ -203,11 +203,12 @@ export const BakeryCatalog: React.FC<BakeryCatalogProps> = ({ onOpenCustomCakeMo
               className="bg-white rounded-3xl overflow-hidden border border-stone-200 shadow-xs hover:shadow-md transition-all flex flex-col justify-between"
             >
               <div>
-                <div className="relative aspect-4/3 overflow-hidden bg-stone-100">
+                {/* Sample Image: Standardized 1:1 Square Aspect Ratio */}
+                <div className="relative aspect-square w-full overflow-hidden bg-stone-100">
                   <img
                     src={sample.image}
                     alt={sample.name}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300"
                     referrerPolicy="no-referrer"
                   />
                   {sample.badge && (

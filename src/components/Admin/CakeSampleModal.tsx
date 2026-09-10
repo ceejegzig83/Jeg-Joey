@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { CakeCustomSample } from '../../types';
 import { X, Cake, Users } from 'lucide-react';
+import { ImageUploadField } from './ImageUploadField';
 
 interface CakeSampleModalProps {
   isOpen: boolean;
@@ -159,16 +160,11 @@ export const CakeSampleModal: React.FC<CakeSampleModalProps> = ({
             />
           </div>
 
-          <div>
-            <label className="block font-bold text-stone-700 mb-1">Photo Image URL *</label>
-            <input
-              type="url"
-              required
-              value={image}
-              onChange={(e) => setImage(e.target.value)}
-              className="w-full p-2.5 bg-stone-50 border border-stone-300 rounded-xl text-stone-900 font-mono text-[11px]"
-            />
-          </div>
+          <ImageUploadField
+            value={image}
+            onChange={(url) => setImage(url)}
+            label="Cake Design Photo"
+          />
 
           <div>
             <label className="block font-bold text-stone-700 mb-1">Artisanal Design Description *</label>

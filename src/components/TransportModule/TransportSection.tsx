@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { KOGI_LOCATIONS, BUSINESS_INFO, TRANSPORT_SAMPLE_ROUTES } from '../../data/mockData';
+import { ALL_KOGI_STREET_LOCATIONS } from '../../data/kogiFullLocations';
 import { LocationPoint, VehicleType } from '../../types';
 import { LiveRideTracker } from './LiveRideTracker';
+import { KogiStateFullMap } from './KogiStateFullMap';
 import { 
   Car, 
   MapPin, 
@@ -16,12 +18,18 @@ import {
   Sparkles,
   ChevronRight,
   Info,
-  ArrowRight
+  ArrowRight,
+  Map as MapIcon
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
 export const TransportSection: React.FC = () => {
   const { activeRide, requestRide, userProfile, showToast, transportRoutes, fareConfig } = useApp();
+
+  // Safe optional environment-variable handling
+  const googleMapsApiKey =
+    import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() || '';
+  const hasGoogleMapsKey = Boolean(googleMapsApiKey);
 
   // Location selector (Default origin: Okene Hub)
   const [pickupLocation, setPickupLocation] = useState<LocationPoint>(KOGI_LOCATIONS[0]); // Okene Total Junction
@@ -143,6 +151,35 @@ export const TransportSection: React.FC = () => {
         </div>
       </div>
 
+      {/* Interactive Google Map of All 21 LGAs, Wards & Streets */}
+      <div className="space-y-3">
+        {!hasGoogleMapsKey && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 sm:p-4 flex items-center justify-between gap-3 text-xs text-amber-900 shadow-xs">
+            <div className="flex items-center gap-2.5">
+              <Info className="w-4 h-4 text-amber-600 shrink-0" />
+              <span className="font-semibold">
+                Google Maps API key not configured — using FLOURISH Kogi State offline/vector map.
+              </span>
+            </div>
+            <span className="hidden sm:inline-flex px-2 py-0.5 rounded-md bg-amber-200/80 text-amber-900 font-bold text-[10px] shrink-0">
+              Zero Config Required
+            </span>
+          </div>
+        )}
+        <KogiStateFullMap
+          selectedPickup={pickupLocation}
+          selectedDestination={destinationLocation}
+          onSelectPickup={(loc) => {
+            setPickupLocation(loc);
+            showToast(`Pickup set to: ${loc.name} (${loc.lga} LGA)`, 'success');
+          }}
+          onSelectDestination={(loc) => {
+            setDestinationLocation(loc);
+            showToast(`Destination set to: ${loc.name} (${loc.lga} LGA)`, 'success');
+          }}
+        />
+      </div>
+
       {/* Booking Form & Vehicle Selector Card */}
       <div className="bg-white rounded-3xl border border-stone-200 p-6 sm:p-8 shadow-sm">
         <form onSubmit={handleBookAndPay} className="space-y-6">
@@ -151,7 +188,7 @@ export const TransportSection: React.FC = () => {
               Book a Ride in Kogi State
             </h3>
             <p className="text-xs text-stone-500 mt-1">
-              Select your pickup and destination in Kogi State. Drivers are dispatched immediately upon online payment confirmation.
+              Select your pickup and destination below or click any point on the Google Map above. Drivers are dispatched immediately upon online payment confirmation.
             </p>
           </div>
 
@@ -166,19 +203,29 @@ export const TransportSection: React.FC = () => {
               <select
                 value={pickupLocation.name}
                 onChange={(e) => {
-                  const found = KOGI_LOCATIONS.find(l => l.name === e.target.value);
+                  const found = ALL_KOGI_STREET_LOCATIONS.find(l => l.name === e.target.value) || KOGI_LOCATIONS.find(l => l.name === e.target.value);
                   if (found) setPickupLocation(found);
                 }}
                 className="w-full bg-stone-50 border border-stone-300 rounded-xl px-3 py-2.5 text-xs text-stone-900 font-medium focus:border-blue-600 focus:outline-hidden"
               >
-                {KOGI_LOCATIONS.map(loc => (
-                  <option key={loc.name} value={loc.name}>
-                    {loc.name} ({loc.lga} LGA) {!loc.isWithinKogi && '⚠️ OUTSIDE KOGI'}
-                  </option>
-                ))}
+                <optgroup label="⭐ Featured Kogi Hubs & Landmarks">
+                  {KOGI_LOCATIONS.map(loc => (
+                    <option key={`hub-${loc.name}`} value={loc.name}>
+                      {loc.name} ({loc.lga} LGA) {!loc.isWithinKogi && '⚠️ OUTSIDE KOGI'}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="📍 All 21 Local Government Areas & Streets">
+                  {ALL_KOGI_STREET_LOCATIONS.map(loc => (
+                    <option key={`all-${loc.name}`} value={loc.name}>
+                      [{loc.lga} LGA - {loc.ward || 'Central'}] {loc.name} ({loc.street || loc.address})
+                    </option>
+                  ))}
+                </optgroup>
               </select>
               <p className="text-[11px] text-stone-500 flex items-center gap-1">
                 <MapPin className="w-3 h-3 text-emerald-600" /> {pickupLocation.address}
+                {pickupLocation.ward && <span className="text-blue-600 font-semibold">• Ward: {pickupLocation.ward}</span>}
               </p>
             </div>
 
@@ -191,19 +238,29 @@ export const TransportSection: React.FC = () => {
               <select
                 value={destinationLocation.name}
                 onChange={(e) => {
-                  const found = KOGI_LOCATIONS.find(l => l.name === e.target.value);
+                  const found = ALL_KOGI_STREET_LOCATIONS.find(l => l.name === e.target.value) || KOGI_LOCATIONS.find(l => l.name === e.target.value);
                   if (found) setDestinationLocation(found);
                 }}
                 className="w-full bg-stone-50 border border-stone-300 rounded-xl px-3 py-2.5 text-xs text-stone-900 font-medium focus:border-blue-600 focus:outline-hidden"
               >
-                {KOGI_LOCATIONS.map(loc => (
-                  <option key={loc.name} value={loc.name}>
-                    {loc.name} ({loc.lga} LGA) {!loc.isWithinKogi && '⚠️ OUTSIDE KOGI'}
-                  </option>
-                ))}
+                <optgroup label="⭐ Featured Kogi Hubs & Landmarks">
+                  {KOGI_LOCATIONS.map(loc => (
+                    <option key={`dest-hub-${loc.name}`} value={loc.name}>
+                      {loc.name} ({loc.lga} LGA) {!loc.isWithinKogi && '⚠️ OUTSIDE KOGI'}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="📍 All 21 Local Government Areas & Streets">
+                  {ALL_KOGI_STREET_LOCATIONS.map(loc => (
+                    <option key={`dest-all-${loc.name}`} value={loc.name}>
+                      [{loc.lga} LGA - {loc.ward || 'Central'}] {loc.name} ({loc.street || loc.address})
+                    </option>
+                  ))}
+                </optgroup>
               </select>
               <p className="text-[11px] text-stone-500 flex items-center gap-1">
                 <Compass className="w-3 h-3 text-amber-600" /> {destinationLocation.address}
+                {destinationLocation.ward && <span className="text-amber-600 font-semibold">• Ward: {destinationLocation.ward}</span>}
               </p>
             </div>
           </div>
