@@ -19,7 +19,13 @@ import {
   TransportSampleRoute,
   BusinessInfoConfig,
   AnnouncementConfig,
-  FareConfig
+  FareConfig,
+  VTUNetwork,
+  VTUServiceType,
+  VTUDataPlan,
+  VTUTransaction,
+  VTUSavedBeneficiary,
+  VTUConfig
 } from '../types';
 import { 
   INITIAL_PRODUCTS, 
@@ -36,6 +42,13 @@ import {
   INITIAL_ANNOUNCEMENT_CONFIG,
   INITIAL_FARE_CONFIG
 } from '../data/mockData';
+import {
+  INITIAL_VTU_CONFIG,
+  INITIAL_VTU_DATA_PLANS,
+  INITIAL_VTU_TRANSACTIONS,
+  INITIAL_SAVED_BENEFICIARIES
+} from '../data/vtuData';
+import { validateNigerianPhone } from '../utils/nigerianPhone';
 
 interface Toast {
   id: string;
@@ -56,6 +69,7 @@ interface AppContextType {
   updateProduct: (product: Product) => void;
   deleteProduct: (productId: string) => void;
   toggleProductInStock: (productId: string) => void;
+  toggleProductStock: (productId: string) => void;
   quickUpdateProductPrice: (productId: string, newPrice: number) => void;
   
   // Bespoke Tailoring Samples
@@ -181,6 +195,55 @@ interface AppContextType {
   verifyOrderCoDPayment: (orderId: string, verifiedBy?: string) => void;
   verifyRidePayment: (rideId: string, verifiedBy?: string) => void;
   sendReceiptNotification: (doc: any, channel?: 'WHATSAPP' | 'SMS') => void;
+
+  // Airtime & Data VTU Module
+  vtuConfig: VTUConfig;
+  vtuDataPlans: VTUDataPlan[];
+  vtuTransactions: VTUTransaction[];
+  savedBeneficiaries: VTUSavedBeneficiary[];
+  activeVTUReceipt: VTUTransaction | null;
+  setActiveVTUReceipt: (tx: VTUTransaction | null) => void;
+  initiateVTUTransaction: (payload: {
+    type: VTUServiceType;
+    network: VTUNetwork;
+    phoneNumber: string;
+    amount: number;
+    planId?: string;
+    customerName?: string;
+    customerEmail?: string;
+    paymentMethod: 'PAYSTACK_CARD' | 'BANK_TRANSFER' | 'USSD';
+    idempotencyKey?: string;
+  }) => Promise<{
+    success: boolean;
+    transaction?: VTUTransaction;
+    paymentSession?: {
+      mode: 'TEST_MODE' | 'LIVE_MODE';
+      reference: string;
+      amountNaira: number;
+      amountKobo: number;
+      authorizationUrl?: string;
+    };
+    error?: string;
+  }>;
+  verifyAndFulfillVTUPayment: (payload: {
+    reference: string;
+    simulatedPaymentOutcome?: 'SUCCESS' | 'FAILED' | 'ABANDONED';
+    simulateProviderFailure?: boolean;
+  }) => Promise<{
+    success: boolean;
+    transaction?: VTUTransaction;
+    error?: string;
+  }>;
+  saveVTUDataPlan: (plan: VTUDataPlan) => Promise<void>;
+  deleteVTUDataPlan: (planId: string) => Promise<void>;
+  toggleVTUDataPlanStatus: (planId: string) => Promise<void>;
+  updateVTUConfig: (config: Partial<VTUConfig>) => Promise<void>;
+  adminVTUTransactionAction: (
+    txId: string,
+    action: 'RETRY' | 'REFUND' | 'REVERSE' | 'MARK_SUCCESS'
+  ) => Promise<void>;
+  addSavedBeneficiary: (ben: Omit<VTUSavedBeneficiary, 'id'>) => void;
+  removeSavedBeneficiary: (id: string) => void;
   
   // Toasts
   toasts: Toast[];
@@ -449,6 +512,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [activeInvoice, setActiveInvoice] = useState<any | null>(null);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
 
+  // VTU State
+  const [vtuConfig, setVtuConfig] = useState<VTUConfig>(() => {
+    const saved = localStorage.getItem('fdc_vtu_config');
+    return saved ? JSON.parse(saved) : INITIAL_VTU_CONFIG;
+  });
+
+  const [vtuDataPlans, setVtuDataPlans] = useState<VTUDataPlan[]>(() => {
+    const saved = localStorage.getItem('fdc_vtu_plans');
+    return saved ? JSON.parse(saved) : INITIAL_VTU_DATA_PLANS;
+  });
+
+  const [vtuTransactions, setVtuTransactions] = useState<VTUTransaction[]>(() => {
+    const saved = localStorage.getItem('fdc_vtu_transactions');
+    return saved ? JSON.parse(saved) : INITIAL_VTU_TRANSACTIONS;
+  });
+
+  const [savedBeneficiaries, setSavedBeneficiaries] = useState<VTUSavedBeneficiary[]>(() => {
+    const saved = localStorage.getItem('fdc_vtu_beneficiaries');
+    return saved ? JSON.parse(saved) : INITIAL_SAVED_BENEFICIARIES;
+  });
+
+  const [activeVTUReceipt, setActiveVTUReceipt] = useState<VTUTransaction | null>(null);
+
   // Toasts
   const [toasts, setToasts] = useState<Toast[]>([]);
 
@@ -540,6 +626,67 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     localStorage.setItem('fdc_user_profile', JSON.stringify(userProfile));
   }, [userProfile]);
+
+  useEffect(() => {
+    localStorage.setItem('fdc_vtu_config', JSON.stringify(vtuConfig));
+  }, [vtuConfig]);
+
+  useEffect(() => {
+    localStorage.setItem('fdc_vtu_plans', JSON.stringify(vtuDataPlans));
+  }, [vtuDataPlans]);
+
+  useEffect(() => {
+    localStorage.setItem('fdc_vtu_transactions', JSON.stringify(vtuTransactions));
+  }, [vtuTransactions]);
+
+  useEffect(() => {
+    localStorage.setItem('fdc_vtu_beneficiaries', JSON.stringify(savedBeneficiaries));
+  }, [savedBeneficiaries]);
+
+  // Sync VTU Config & Plans from Backend API on startup
+  useEffect(() => {
+    const syncVTUBackend = async () => {
+      try {
+        const [cfgRes, plansRes, txRes] = await Promise.all([
+          fetch('/api/vtu/config'),
+          fetch('/api/vtu/data-plans?includeInactive=true'),
+          fetch('/api/vtu/transactions')
+        ]);
+        if (cfgRes.ok) {
+          const cfgData = await cfgRes.json();
+          if (cfgData.success && cfgData.config) {
+            setVtuConfig((prev) => ({
+              ...prev,
+              isLivePaystack: cfgData.config.isLivePaystack,
+              mode: cfgData.config.mode,
+              vtuProviderName: cfgData.config.vtuProviderName
+            }));
+          }
+        }
+        if (plansRes.ok) {
+          const plansData = await plansRes.json();
+          if (plansData.success && Array.isArray(plansData.plans) && plansData.plans.length > 0) {
+            const savedLocal = localStorage.getItem('fdc_vtu_plans');
+            if (!savedLocal) {
+              setVtuDataPlans(plansData.plans);
+            }
+          }
+        }
+        if (txRes.ok) {
+          const txData = await txRes.json();
+          if (txData.success && Array.isArray(txData.transactions)) {
+            const savedTx = localStorage.getItem('fdc_vtu_transactions');
+            if (!savedTx) {
+              setVtuTransactions(txData.transactions);
+            }
+          }
+        }
+      } catch {
+        // Running in offline/fallback preview mode; local state remains active
+      }
+    };
+    syncVTUBackend();
+  }, []);
 
   // Cart operations
   const addToCart = (
@@ -1030,6 +1177,380 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast(`Official receipt dispatched via ${channel} to ${phone}`, 'success', 'Receipt Dispatched');
   };
 
+  // --- AIRTIME & DATA VTU OPERATIONS ---
+  const initiateVTUTransaction: AppContextType['initiateVTUTransaction'] = async (payload) => {
+    // Validate phone number
+    const validation = validateNigerianPhone(payload.phoneNumber);
+    if (!validation.isValid) {
+      showToast(validation.error || 'Invalid Nigerian phone number', 'error', 'Validation Error');
+      return { success: false, error: validation.error };
+    }
+
+    try {
+      const res = await fetch('/api/vtu/transactions/initiate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...payload,
+          phoneNumber: validation.normalized,
+          customerName: payload.customerName || userProfile.name,
+          customerEmail: payload.customerEmail || userProfile.email
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.transaction) {
+          setVtuTransactions((prev) => {
+            const exists = prev.some((t) => t.id === data.transaction.id);
+            return exists
+              ? prev.map((t) => (t.id === data.transaction.id ? data.transaction : t))
+              : [data.transaction, ...prev];
+          });
+          return {
+            success: true,
+            transaction: data.transaction,
+            paymentSession: data.paymentSession
+          };
+        } else {
+          showToast(data.error || 'Could not initialize VTU order', 'error');
+          return { success: false, error: data.error };
+        }
+      }
+    } catch {
+      // Fallback to local sandbox transaction creation if backend route is unreachable
+    }
+
+    // Safe Local Sandbox Initiation Fallback
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(
+      now.getDate()
+    ).padStart(2, '0')}`;
+    const txId = `FDC-${dateStr}-${Math.floor(100000 + Math.random() * 900000)}`;
+    const reference = `PSTK_${txId.replace(/-/g, '_')}`;
+    const resolvedPlan =
+      payload.type === 'DATA'
+        ? vtuDataPlans.find((p) => p.planId === payload.planId)
+        : undefined;
+    const nominalAmount =
+      payload.type === 'DATA' && resolvedPlan ? resolvedPlan.customerPrice : payload.amount;
+    const serviceFee =
+      payload.type === 'AIRTIME' ? vtuConfig.airtimeServiceFee : vtuConfig.dataServiceFee;
+    const totalAmount = nominalAmount + serviceFee;
+
+    const fallbackTx: VTUTransaction = {
+      id: txId,
+      reference,
+      idempotencyKey: payload.idempotencyKey,
+      type: payload.type,
+      network: payload.network,
+      phoneNumber: validation.normalized,
+      customerName: payload.customerName || userProfile.name,
+      customerEmail: payload.customerEmail || userProfile.email,
+      amount: nominalAmount,
+      serviceFee,
+      totalAmount,
+      providerCost:
+        payload.type === 'DATA' && resolvedPlan
+          ? resolvedPlan.providerPrice
+          : Math.round(nominalAmount * 0.98),
+      planId: resolvedPlan?.planId,
+      planName: resolvedPlan?.name,
+      planValidity: resolvedPlan?.validity,
+      paymentMethod: payload.paymentMethod,
+      paymentStatus: 'PENDING',
+      vtuProvider: vtuConfig.vtuProviderName,
+      vtuStatusMessage: 'Awaiting payment verification from Paystack gateway.',
+      status: 'PAYMENT_PENDING',
+      mode: vtuConfig.mode,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString()
+    };
+
+    setVtuTransactions((prev) => [fallbackTx, ...prev]);
+
+    return {
+      success: true,
+      transaction: fallbackTx,
+      paymentSession: {
+        mode: vtuConfig.mode,
+        reference: fallbackTx.reference,
+        amountNaira: totalAmount,
+        amountKobo: Math.round(totalAmount * 100)
+      }
+    };
+  };
+
+  const verifyAndFulfillVTUPayment: AppContextType['verifyAndFulfillVTUPayment'] = async ({
+    reference,
+    simulatedPaymentOutcome = 'SUCCESS',
+    simulateProviderFailure = false
+  }) => {
+    try {
+      const res = await fetch('/api/vtu/payments/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reference,
+          simulatedPaymentOutcome,
+          simulateProviderFailure
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.transaction) {
+          setVtuTransactions((prev) =>
+            prev.map((t) =>
+              t.id === data.transaction.id || t.reference === data.transaction.reference
+                ? data.transaction
+                : t
+            )
+          );
+          if (data.transaction.status === 'SUCCESSFUL') {
+            showToast(
+              data.transaction.vtuStatusMessage || 'Airtime/Data delivered successfully!',
+              'success',
+              'VTU Transaction Successful'
+            );
+          } else if (data.transaction.status === 'REFUNDED') {
+            showToast(
+              data.transaction.vtuStatusMessage || 'VTU failed after payment — Auto-Refunded.',
+              'warning',
+              'Payment Auto-Refunded'
+            );
+          } else {
+            showToast(
+              data.transaction.vtuStatusMessage || 'Payment verification failed.',
+              'error',
+              'Transaction Failed'
+            );
+          }
+          return {
+            success: Boolean(data.success),
+            transaction: data.transaction,
+            error: data.error
+          };
+        }
+      }
+    } catch {
+      // Fallback to local sandbox verification if server endpoint unreachable
+    }
+
+    let updatedTx: VTUTransaction | undefined;
+    setVtuTransactions((prev) =>
+      prev.map((tx) => {
+        if (tx.reference !== reference && tx.id !== reference) return tx;
+        const nowIso = new Date().toISOString();
+
+        if (simulatedPaymentOutcome !== 'SUCCESS') {
+          updatedTx = {
+            ...tx,
+            paymentStatus: simulatedPaymentOutcome === 'ABANDONED' ? 'ABANDONED' : 'FAILED',
+            status: 'FAILED',
+            vtuStatusMessage:
+              simulatedPaymentOutcome === 'ABANDONED'
+                ? '[TEST MODE] Payment checkout abandoned. No airtime/data delivered.'
+                : '[TEST MODE] Payment declined by bank. VTU dispense blocked safely.',
+            updatedAt: nowIso
+          };
+          return updatedTx;
+        }
+
+        if (simulateProviderFailure) {
+          updatedTx = {
+            ...tx,
+            paymentStatus: 'REFUNDED',
+            paymentGatewayRef: `PSTK_TEST_${Math.floor(100000 + Math.random() * 900000)}`,
+            paymentVerifiedAt: nowIso,
+            vtuProviderRef: `SIM_ERR_${Date.now().toString().slice(-5)}`,
+            status: 'REFUNDED',
+            vtuStatusMessage: `[TEST MODE] Payment verified, but ${tx.network} VTU provider timed out. Automatic customer refund issued.`,
+            updatedAt: nowIso
+          };
+          return updatedTx;
+        }
+
+        const providerRef = `VTU_${tx.network}_${tx.type}_${Math.floor(
+          100000 + Math.random() * 900000
+        )}`;
+        updatedTx = {
+          ...tx,
+          paymentStatus: 'SUCCESSFUL',
+          paymentGatewayRef: `PSTK_TEST_${Math.floor(100000 + Math.random() * 900000)}`,
+          paymentVerifiedAt: nowIso,
+          vtuProviderRef: providerRef,
+          status: 'SUCCESSFUL',
+          vtuStatusMessage:
+            tx.type === 'AIRTIME'
+              ? `[TEST MODE] ₦${tx.amount.toLocaleString()} ${tx.network} Airtime credited to ${tx.phoneNumber}.`
+              : `[TEST MODE] ${tx.network} ${tx.planName} (${tx.planValidity}) Data Bundle activated on ${tx.phoneNumber}.`,
+          updatedAt: nowIso,
+          completedAt: nowIso
+        };
+        return updatedTx;
+      })
+    );
+
+    if (updatedTx) {
+      if (updatedTx.status === 'SUCCESSFUL') {
+        showToast(updatedTx.vtuStatusMessage || 'VTU Delivered!', 'success', 'VTU Successful');
+      } else {
+        showToast(updatedTx.vtuStatusMessage || 'VTU Failed', 'error', 'Transaction Alert');
+      }
+    }
+
+    return {
+      success: updatedTx?.status === 'SUCCESSFUL',
+      transaction: updatedTx
+    };
+  };
+
+  const saveVTUDataPlan = async (plan: VTUDataPlan) => {
+    setVtuDataPlans((prev) => {
+      const exists = prev.some((p) => p.planId === plan.planId);
+      return exists ? prev.map((p) => (p.planId === plan.planId ? plan : p)) : [plan, ...prev];
+    });
+    try {
+      await fetch('/api/vtu/admin/plans', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(plan)
+      });
+    } catch {
+      // Saved in local state
+    }
+    showToast(`VTU Data Plan "${plan.network} ${plan.name}" saved!`, 'success', 'VTU Plan Saved');
+  };
+
+  const deleteVTUDataPlan = async (planId: string) => {
+    setVtuDataPlans((prev) => prev.filter((p) => p.planId !== planId));
+    try {
+      await fetch(`/api/vtu/admin/plans/${encodeURIComponent(planId)}`, {
+        method: 'DELETE'
+      });
+    } catch {
+      // Removed in local state
+    }
+    showToast('Data plan removed from catalog.', 'info');
+  };
+
+  const toggleVTUDataPlanStatus = async (planId: string) => {
+    let toggledPlan: VTUDataPlan | undefined;
+    setVtuDataPlans((prev) =>
+      prev.map((p) => {
+        if (p.planId === planId) {
+          const nextStatus = p.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+          toggledPlan = { ...p, status: nextStatus };
+          return toggledPlan;
+        }
+        return p;
+      })
+    );
+    if (toggledPlan) {
+      try {
+        await fetch('/api/vtu/admin/plans', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(toggledPlan)
+        });
+      } catch {
+        // Updated locally
+      }
+      showToast(
+        `${toggledPlan.network} ${toggledPlan.name} marked as ${toggledPlan.status}`,
+        'info'
+      );
+    }
+  };
+
+  const updateVTUConfig = async (config: Partial<VTUConfig>) => {
+    setVtuConfig((prev) => ({ ...prev, ...config }));
+    try {
+      await fetch('/api/vtu/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config)
+      });
+    } catch {
+      // Updated locally
+    }
+    showToast('VTU Gateway & Telecom settings updated!', 'success', 'VTU Config Saved');
+  };
+
+  const adminVTUTransactionAction = async (
+    txId: string,
+    action: 'RETRY' | 'REFUND' | 'REVERSE' | 'MARK_SUCCESS'
+  ) => {
+    try {
+      const res = await fetch(`/api/vtu/admin/transactions/${encodeURIComponent(txId)}/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.transaction) {
+          setVtuTransactions((prev) =>
+            prev.map((t) => (t.id === txId ? data.transaction : t))
+          );
+          showToast(`Transaction ${txId} updated (${action})`, 'success');
+          return;
+        }
+      }
+    } catch {
+      // Fallback local update
+    }
+
+    setVtuTransactions((prev) =>
+      prev.map((t) => {
+        if (t.id !== txId) return t;
+        const nowIso = new Date().toISOString();
+        if (action === 'RETRY' || action === 'MARK_SUCCESS') {
+          return {
+            ...t,
+            status: 'SUCCESSFUL',
+            paymentStatus: 'SUCCESSFUL',
+            vtuProviderRef: t.vtuProviderRef || `VTU_ADMIN_${Date.now().toString().slice(-6)}`,
+            vtuStatusMessage: `[Admin Re-Dispatched] ${t.network} ${t.type} fulfilled for ${t.phoneNumber}.`,
+            updatedAt: nowIso,
+            completedAt: nowIso
+          };
+        }
+        if (action === 'REFUND') {
+          return {
+            ...t,
+            status: 'REFUNDED',
+            paymentStatus: 'REFUNDED',
+            vtuStatusMessage: 'Refunded to customer by HQ Admin.',
+            updatedAt: nowIso
+          };
+        }
+        return {
+          ...t,
+          status: 'REVERSED',
+          vtuStatusMessage: 'Reversed by HQ Admin.',
+          updatedAt: nowIso
+        };
+      })
+    );
+    showToast(`Transaction ${txId} action (${action}) completed.`, 'success');
+  };
+
+  const addSavedBeneficiary = (ben: Omit<VTUSavedBeneficiary, 'id'>) => {
+    const newBen: VTUSavedBeneficiary = {
+      ...ben,
+      id: `ben-${Date.now()}`
+    };
+    setSavedBeneficiaries((prev) => [newBen, ...prev]);
+    showToast(`Saved ${ben.name} (${ben.phoneNumber}) to beneficiaries`, 'success');
+  };
+
+  const removeSavedBeneficiary = (id: string) => {
+    setSavedBeneficiaries((prev) => prev.filter((b) => b.id !== id));
+    showToast('Beneficiary removed', 'info');
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -1042,6 +1563,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateProduct,
         deleteProduct,
         toggleProductInStock,
+        toggleProductStock: toggleProductInStock,
         quickUpdateProductPrice,
         bespokeSamples,
         addBespokeSample,
@@ -1127,6 +1649,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         verifyOrderCoDPayment,
         verifyRidePayment,
         sendReceiptNotification,
+        vtuConfig,
+        vtuDataPlans,
+        vtuTransactions,
+        savedBeneficiaries,
+        activeVTUReceipt,
+        setActiveVTUReceipt,
+        initiateVTUTransaction,
+        verifyAndFulfillVTUPayment,
+        saveVTUDataPlan,
+        deleteVTUDataPlan,
+        toggleVTUDataPlanStatus,
+        updateVTUConfig,
+        adminVTUTransactionAction,
+        addSavedBeneficiary,
+        removeSavedBeneficiary,
         toasts,
         showToast,
         removeToast,

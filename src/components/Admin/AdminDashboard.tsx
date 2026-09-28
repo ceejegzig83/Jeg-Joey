@@ -36,7 +36,8 @@ import {
   CreditCard,
   Eye,
   Check,
-  X
+  X,
+  Smartphone
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Product, BespokeTailoringSample, CakeCustomSample, CateringPackage, CateringSampleDish, TransportSampleRoute, Driver } from '../../types';
@@ -49,6 +50,7 @@ import { CateringPackageModal } from './CateringPackageModal';
 import { CateringDishModal } from './CateringDishModal';
 import { TransportRouteModal } from './TransportRouteModal';
 import { DriverFormModal } from './DriverFormModal';
+import { AdminVTUPanel } from './AdminVTUPanel';
 
 export const AdminDashboard: React.FC = () => {
   const { 
@@ -102,11 +104,13 @@ export const AdminDashboard: React.FC = () => {
     updateFareConfig,
     resetAllToFactoryDefaults,
     exportSiteDataBackup,
-    importSiteDataBackup
+    importSiteDataBackup,
+    vtuTransactions,
+    vtuDataPlans
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<
-    'OVERVIEW' | 'PRODUCTS' | 'TAILORING' | 'CAKES' | 'CATERING' | 'TRANSPORT' | 'ORDERS' | 'PAYMENTS' | 'SETTINGS'
+    'OVERVIEW' | 'VTU' | 'PRODUCTS' | 'TAILORING' | 'CAKES' | 'CATERING' | 'TRANSPORT' | 'ORDERS' | 'PAYMENTS' | 'SETTINGS'
   >('OVERVIEW');
 
   // Product filters
@@ -146,11 +150,16 @@ export const AdminDashboard: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Stats Calculation
+  const vtuSettledRevenue = vtuTransactions
+    .filter((t) => t.status === 'SUCCESSFUL')
+    .reduce((sum, t) => sum + t.totalAmount, 0);
+
   const totalRevenue = orders.reduce((sum, o) => sum + (o.paymentStatus === 'PAID' ? o.total : 0), 0) +
     tailoringRequests.reduce((sum, t) => sum + (t.depositPaid || t.estimatedCost), 0) +
     cakeOrders.reduce((sum, c) => sum + c.estimatedPrice, 0) +
     cateringBookings.reduce((sum, cat) => sum + (cat.depositPaid || 0), 0) +
-    rideHistory.reduce((sum, r) => sum + r.totalFare, 0);
+    rideHistory.reduce((sum, r) => sum + r.totalFare, 0) +
+    vtuSettledRevenue;
 
   const pendingCodOrders = orders.filter(o => o.paymentMethod === 'CASH_ON_DELIVERY' && o.paymentStatus === 'PENDING');
   const pendingCodRides = rideHistory.filter(r => r.paymentStatus === 'PENDING');
@@ -383,6 +392,7 @@ export const AdminDashboard: React.FC = () => {
       <div className="flex flex-wrap gap-2 border-b border-stone-200 pb-3">
         {[
           { key: 'OVERVIEW', label: '📊 Overview' },
+          { key: 'VTU', label: `📱 Airtime & Data VTU (${vtuTransactions.length})` },
           { key: 'PRODUCTS', label: `🛍️ Products & Inventory (${products.length})` },
           { key: 'TAILORING', label: `✂️ Fashion & Bespoke (${tailoringRequests.length})` },
           { key: 'CAKES', label: `🎂 Bakery & Cakes (${cakeOrders.length})` },
@@ -453,6 +463,20 @@ export const AdminDashboard: React.FC = () => {
               </h3>
               <div className="space-y-2.5 text-xs">
                 <div 
+                  onClick={() => setActiveTab('VTU')}
+                  className="p-3.5 rounded-2xl bg-purple-50/80 border border-purple-200 flex justify-between items-center hover:bg-purple-100/80 cursor-pointer transition-colors"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Smartphone className="w-4 h-4 text-purple-700" />
+                    <div>
+                      <div className="font-bold text-purple-950">Airtime & Mobile Data VTU</div>
+                      <div className="text-[11px] text-purple-800">{vtuDataPlans.length} Data Bundles • MTN, Airtel, Glo, 9mobile</div>
+                    </div>
+                  </div>
+                  <strong className="text-stone-900 font-bold">{vtuTransactions.length} VTU Orders</strong>
+                </div>
+
+                <div 
                   onClick={() => setActiveTab('TAILORING')}
                   className="p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200 flex justify-between items-center hover:bg-amber-100/80 cursor-pointer transition-colors"
                 >
@@ -512,6 +536,11 @@ export const AdminDashboard: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* 1B. AIRTIME & DATA VTU TAB */}
+      {/* ========================================================================= */}
+      {activeTab === 'VTU' && <AdminVTUPanel />}
 
       {/* ========================================================================= */}
       {/* 2. PRODUCTS & INVENTORY CMS TAB */}

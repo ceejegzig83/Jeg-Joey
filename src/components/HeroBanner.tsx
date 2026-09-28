@@ -13,12 +13,16 @@ import {
   ArrowRight, 
   ShieldCheck,
   Search,
-  CheckCircle2
+  CheckCircle2,
+  Smartphone
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
-export const HeroBanner: React.FC = () => {
-  const { setActiveDivision, searchQuery, setSearchQuery } = useApp();
+export const HeroBanner: React.FC<{
+  onOpenTailoringModal?: () => void;
+  onOpenCustomCakeModal?: () => void;
+}> = () => {
+  const { setActiveDivision } = useApp();
 
   const hubs: {
     id: Division;
@@ -31,6 +35,17 @@ export const HeroBanner: React.FC = () => {
     cta: string;
     image: string;
   }[] = [
+    {
+      id: 'VTU',
+      title: 'Airtime & Data VTU',
+      subtitle: 'Instant MTN, Airtel, Glo & 9mobile Airtime & Data Bundles with Digital Receipts',
+      tag: 'Instant Telecom Top-Up',
+      icon: Smartphone,
+      accentColor: 'from-purple-700 to-indigo-950',
+      badge: 'Instant VTU',
+      cta: 'Buy Airtime & Data',
+      image: 'https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?auto=format&fit=crop&w=600&q=80'
+    },
     {
       id: 'FASHION',
       title: 'Fashion Store & Tailoring',
@@ -116,8 +131,16 @@ export const HeroBanner: React.FC = () => {
           {/* Quick Buttons */}
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
             <button
+              onClick={() => setActiveDivision('VTU')}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs sm:text-sm shadow-md transition-all hover:scale-105 cursor-pointer"
+            >
+              <Smartphone className="w-4 h-4" />
+              <span>Buy Airtime & Data</span>
+            </button>
+
+            <button
               onClick={() => setActiveDivision('TRANSPORT')}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs sm:text-sm shadow-md transition-all hover:scale-105"
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs sm:text-sm shadow-md transition-all hover:scale-105 cursor-pointer"
             >
               <Car className="w-4 h-4" />
               <span>Book Keke / Car Ride</span>
@@ -125,9 +148,9 @@ export const HeroBanner: React.FC = () => {
 
             <button
               onClick={() => setActiveDivision('FASHION')}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs sm:text-sm shadow-md transition-all hover:scale-105"
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-white font-bold text-xs sm:text-sm border border-stone-700 shadow-md transition-all hover:scale-105 cursor-pointer"
             >
-              <Sparkles className="w-4 h-4" />
+              <Sparkles className="w-4 h-4 text-amber-400" />
               <span>Shop Fashion & Tailoring</span>
             </button>
 
@@ -141,8 +164,8 @@ export const HeroBanner: React.FC = () => {
           </div>
         </div>
 
-        {/* 5 Distinct Business Hub Cards Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        {/* 6 Distinct Business Hub Cards Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {hubs.map((hub) => {
             const Icon = hub.icon;
             return (

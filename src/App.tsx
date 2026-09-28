@@ -12,6 +12,8 @@ import { CateringSection } from './components/CateringModule/CateringSection';
 import { GroceryCatalog } from './components/GroceryHub/GroceryCatalog';
 import { TransportSection } from './components/TransportModule/TransportSection';
 import { DriverPortal } from './components/TransportModule/DriverPortal';
+import { VTUSection } from './components/VTUModule/VTUSection';
+import { VTUReceiptModal } from './components/VTUModule/VTUReceiptModal';
 import { AdminDashboard } from './components/Admin/AdminDashboard';
 import { AdminLoginModal } from './components/Admin/AdminLoginModal';
 import { CartDrawer } from './components/Cart/CartDrawer';
@@ -31,7 +33,8 @@ import {
   ShieldCheck, 
   ArrowRight,
   Sparkles,
-  Zap
+  Zap,
+  Smartphone
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -81,7 +84,7 @@ const AppContent: React.FC = () => {
                     <div className="flex items-center justify-between">
                       <div>
                         <h2 className="text-xl sm:text-2xl font-black text-stone-900 font-display">
-                          Explore 5 Business Hubs
+                          Explore 6 Business Hubs
                         </h2>
                         <p className="text-xs text-stone-500">
                           Operated by FLOURISH DESTINY COLLECTION in Okene, Kogi State.
@@ -90,6 +93,33 @@ const AppContent: React.FC = () => {
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                      {/* Airtime & Data VTU Card */}
+                      <div 
+                        onClick={() => setActiveDivision('VTU')}
+                        className="bg-white rounded-3xl p-6 border border-stone-200 hover:border-amber-500 shadow-xs hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between"
+                      >
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="w-12 h-12 rounded-2xl bg-purple-100 text-purple-900 flex items-center justify-center font-bold">
+                              <Smartphone className="w-6 h-6" />
+                            </div>
+                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-900">
+                              Instant Top-Up
+                            </span>
+                          </div>
+                          <h3 className="text-lg font-bold text-stone-900 group-hover:text-purple-700 transition-colors">
+                            Airtime & Data VTU
+                          </h3>
+                          <p className="text-xs text-stone-600 leading-relaxed">
+                            Instant Nigerian airtime & mobile data bundles for MTN, Airtel, Glo, and 9mobile with automated verification & digital receipts.
+                          </p>
+                        </div>
+                        <div className="pt-4 mt-4 border-t border-stone-100 flex items-center justify-between text-xs font-bold text-purple-700">
+                          <span>Buy Airtime & Data</span>
+                          <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                        </div>
+                      </div>
+
                       {/* Fashion Card */}
                       <div 
                         onClick={() => setActiveDivision('FASHION')}
@@ -181,7 +211,7 @@ const AppContent: React.FC = () => {
                       {/* Transport Card */}
                       <div 
                         onClick={() => setActiveDivision('TRANSPORT')}
-                        className="bg-white rounded-3xl p-6 border border-stone-200 hover:border-amber-500 shadow-xs hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between sm:col-span-2 lg:col-span-2"
+                        className="bg-white rounded-3xl p-6 border border-stone-200 hover:border-amber-500 shadow-xs hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between"
                       >
                         <div className="space-y-3">
                           <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-900 flex items-center justify-center font-bold">
@@ -238,6 +268,9 @@ const AppContent: React.FC = () => {
 
               {/* TRANSPORT DIVISION */}
               {activeDivision === 'TRANSPORT' && <TransportSection />}
+
+              {/* AIRTIME & DATA VTU DIVISION */}
+              {activeDivision === 'VTU' && <VTUSection />}
             </motion.div>
           </AnimatePresence>
         )}
@@ -272,6 +305,8 @@ const AppContent: React.FC = () => {
       <CheckoutModal />
 
       <InvoiceModal />
+
+      <VTUReceiptModal />
 
       <ContactModal />
     </div>

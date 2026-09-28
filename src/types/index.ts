@@ -1,4 +1,92 @@
-export type Division = 'ALL' | 'FASHION' | 'BAKERY' | 'CATERING' | 'GROCERY' | 'TRANSPORT';
+export type Division = 'ALL' | 'FASHION' | 'BAKERY' | 'CATERING' | 'GROCERY' | 'TRANSPORT' | 'VTU';
+
+export type VTUNetwork = 'MTN' | 'AIRTEL' | 'GLO' | '9MOBILE';
+
+export type VTUServiceType = 'AIRTIME' | 'DATA';
+
+export type VTUTransactionStatus =
+  | 'PENDING'
+  | 'PAYMENT_PENDING'
+  | 'PAYMENT_SUCCESSFUL'
+  | 'PROCESSING'
+  | 'SUCCESSFUL'
+  | 'FAILED'
+  | 'REVERSED'
+  | 'REFUNDED';
+
+export interface VTUNetworkInfo {
+  id: VTUNetwork;
+  name: string;
+  shortName: string;
+  color: string;
+  bgLight: string;
+  borderColor: string;
+  textColor: string;
+  prefixes: string[];
+  enabled: boolean;
+  airtimeDiscountPercent?: number;
+}
+
+export interface VTUDataPlan {
+  planId: string;
+  network: VTUNetwork;
+  name: string; // e.g., "1GB", "500MB", "2GB"
+  description: string; // e.g., "MTN SME / Monthly Data Plan"
+  category?: 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'MEGA';
+  validity: string; // e.g., "30 Days"
+  providerPrice: number;
+  customerPrice: number;
+  status: 'ACTIVE' | 'INACTIVE';
+}
+
+export interface VTUTransaction {
+  id: string; // e.g., "FDC-20260927-849201"
+  reference: string; // Payment/Idempotency reference
+  idempotencyKey?: string;
+  type: VTUServiceType;
+  network: VTUNetwork;
+  phoneNumber: string; // Normalized 11-digit Nigerian number e.g. 08012345678
+  customerName?: string;
+  customerEmail?: string;
+  amount: number; // Nominal airtime amount or bundle customerPrice
+  serviceFee: number;
+  totalAmount: number;
+  providerCost?: number;
+  planId?: string;
+  planName?: string;
+  planValidity?: string;
+  paymentMethod: 'PAYSTACK_CARD' | 'BANK_TRANSFER' | 'USSD';
+  paymentStatus: 'PENDING' | 'SUCCESSFUL' | 'FAILED' | 'ABANDONED' | 'REFUNDED';
+  paymentGatewayRef?: string;
+  paymentVerifiedAt?: string;
+  vtuProvider: string;
+  vtuProviderRef?: string;
+  vtuStatusMessage?: string;
+  status: VTUTransactionStatus;
+  mode: 'TEST_MODE' | 'LIVE_MODE';
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+}
+
+export interface VTUSavedBeneficiary {
+  id: string;
+  name: string;
+  phoneNumber: string;
+  network: VTUNetwork;
+}
+
+export interface VTUConfig {
+  mode: 'TEST_MODE' | 'LIVE_MODE';
+  isLivePaystack: boolean;
+  vtuProviderName: string;
+  minAirtimeAmount: number;
+  maxAirtimeAmount: number;
+  airtimeServiceFee: number;
+  dataServiceFee: number;
+  networksEnabled: Record<VTUNetwork, boolean>;
+}
+
 
 export type PaymentMethod = 
   | 'PAYSTACK_CARD' 
@@ -307,6 +395,7 @@ export interface BusinessInfoConfig {
     CATERING: boolean;
     GROCERY: boolean;
     TRANSPORT: boolean;
+    VTU?: boolean;
   };
 }
 

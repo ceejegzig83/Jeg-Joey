@@ -20,11 +20,12 @@ import {
   Menu,
   X,
   Lock,
-  LogOut
+  LogOut,
+  Smartphone
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
-export const Header: React.FC = () => {
+export const Header: React.FC<{ onOpenContactModal?: () => void }> = () => {
   const { 
     activeDivision, 
     setActiveDivision, 
@@ -49,6 +50,7 @@ export const Header: React.FC = () => {
 
   const navItems: { id: Division; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
     { id: 'ALL', label: 'All Services Hub', icon: Grid },
+    { id: 'VTU', label: 'Airtime & Data VTU', icon: Smartphone },
     { id: 'FASHION', label: 'Fashion Store', icon: Sparkles },
     { id: 'BAKERY', label: 'Artisanal Bakery', icon: Cake },
     { id: 'CATERING', label: 'Catering Services', icon: UtensilsCrossed },
