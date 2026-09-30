@@ -3,6 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { KOGI_LOCATIONS, BUSINESS_INFO, TRANSPORT_SAMPLE_ROUTES } from '../../data/mockData';
 import { ALL_KOGI_STREET_LOCATIONS } from '../../data/kogiFullLocations';
 import { LocationPoint, VehicleType } from '../../types';
+import { validateNigerianPhone } from '../../utils/nigerianPhone';
 import { LiveRideTracker } from './LiveRideTracker';
 import { KogiStateFullMap } from './KogiStateFullMap';
 import { 
@@ -24,7 +25,7 @@ import {
 import { motion } from 'motion/react';
 
 export const TransportSection: React.FC = () => {
-  const { activeRide, requestRide, userProfile, showToast, transportRoutes, fareConfig } = useApp();
+  const { activeRide, rideHistory, requestRide, userProfile, showToast, transportRoutes, fareConfig, setActiveInvoice } = useApp();
 
   // Safe optional environment-variable handling
   const googleMapsApiKey =
@@ -35,6 +36,7 @@ export const TransportSection: React.FC = () => {
   const [pickupLocation, setPickupLocation] = useState<LocationPoint>(KOGI_LOCATIONS[0]); // Okene Total Junction
   const [destinationLocation, setDestinationLocation] = useState<LocationPoint>(KOGI_LOCATIONS[1]); // Obehira Market
   const [vehicleType, setVehicleType] = useState<VehicleType>('KEKE');
+  const [tripMode, setTripMode] = useState<'STANDARD' | 'PRIVATE_HIRE'>('STANDARD');
 
   // Customer contact info
   const [customerName, setCustomerName] = useState(userProfile.name || '');
@@ -56,16 +58,17 @@ export const TransportSection: React.FC = () => {
   const distanceKm = calculateDistanceKm(pickupLocation, destinationLocation);
   const estimatedMinutes = Math.max(5, Math.round(distanceKm * 2.8));
 
-  // Dynamic Fare calculation based on Vehicle Type (Keke vs Car)
-  const calculateFare = (vType: VehicleType, dist: number, mins: number) => {
+  // Dynamic Fare calculation based on Vehicle Type (Keke vs Car) & Trip Mode (Standard vs Private Hire)
+  const calculateFare = (vType: VehicleType, dist: number, mins: number, mode: 'STANDARD' | 'PRIVATE_HIRE' = tripMode) => {
     const base = vType === 'KEKE' ? fareConfig.kekeBaseFare : fareConfig.carBaseFare;
     const perKm = vType === 'KEKE' ? fareConfig.kekePerKm : fareConfig.carPerKm;
     const distFare = Math.round(dist * perKm);
     const timeFare = Math.round(mins * 25);
-    return Math.round((base + distFare + timeFare) * (fareConfig.surgeMultiplier || 1.0));
+    const modeMultiplier = mode === 'PRIVATE_HIRE' ? 1.5 : 1.0;
+    return Math.round((base + distFare + timeFare) * (fareConfig.surgeMultiplier || 1.0) * modeMultiplier);
   };
 
-  const totalFare = calculateFare(vehicleType, distanceKm, estimatedMinutes);
+  const totalFare = calculateFare(vehicleType, distanceKm, estimatedMinutes, tripMode);
 
   // Geofence check
   const isGeofenceValid = pickupLocation.isWithinKogi && destinationLocation.isWithinKogi;
@@ -73,8 +76,24 @@ export const TransportSection: React.FC = () => {
   const handleBookAndPay = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!customerName || !customerPhone) {
+    if (!customerName.trim() || !customerPhone.trim()) {
       showToast('Please enter your name and phone number for ride dispatch', 'error');
+      return;
+    }
+
+    const phoneCheck = validateNigerianPhone(customerPhone);
+    if (!phoneCheck.isValid) {
+      showToast(phoneCheck.error || 'Please enter a valid 11-digit Nigerian phone number', 'error', 'Invalid Phone Number');
+      return;
+    }
+
+    // Prevent identical pickup and destination (Section 11)
+    if (
+      pickupLocation.name === destinationLocation.name ||
+      (pickupLocation.latitude === destinationLocation.latitude &&
+        pickupLocation.longitude === destinationLocation.longitude)
+    ) {
+      showToast('Pickup and destination cannot be identical. Please choose a different destination.', 'error', 'Invalid Route');
       return;
     }
 
@@ -98,11 +117,12 @@ export const TransportSection: React.FC = () => {
       setIsProcessingPayment(false);
 
       requestRide({
-        customerName,
-        customerPhone,
+        customerName: customerName.trim(),
+        customerPhone: phoneCheck.normalized,
         pickupLocation,
         destinationLocation,
         vehicleType,
+        tripMode,
         distanceKm,
         estimatedMinutes,
         totalFare,
@@ -278,12 +298,32 @@ export const TransportSection: React.FC = () => {
             </div>
           )}
 
-          {/* Vehicle Type Selection */}
+          {/* Vehicle Type & Hiring Mode Selection */}
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <label className="block text-xs font-bold uppercase tracking-wider text-stone-500">
-                Choose Vehicle Type
+                Choose Vehicle & Hiring Mode
               </label>
+              <div className="flex items-center gap-1 bg-stone-100 p-1 rounded-xl text-xs">
+                <button
+                  type="button"
+                  onClick={() => setTripMode('STANDARD')}
+                  className={`px-3 py-1 rounded-lg font-bold transition-colors cursor-pointer ${
+                    tripMode === 'STANDARD' ? 'bg-blue-600 text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                >
+                  Point-to-Point Ride
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTripMode('PRIVATE_HIRE')}
+                  className={`px-3 py-1 rounded-lg font-bold transition-colors cursor-pointer ${
+                    tripMode === 'PRIVATE_HIRE' ? 'bg-amber-500 text-stone-950 shadow-xs' : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                >
+                  Private / Charter Hire (VIP)
+                </button>
+              </div>
               <span className="text-xs text-stone-500 font-medium">
                 Est. Distance: <strong>{distanceKm} km</strong> • Duration: ~<strong>{estimatedMinutes} mins</strong>
               </span>
@@ -584,6 +624,66 @@ export const TransportSection: React.FC = () => {
           ))}
         </div>
       </div>
+
+      {/* Passenger Ride History & Driver Information */}
+      {rideHistory.length > 0 && (
+        <div className="bg-white rounded-3xl border border-stone-200 p-6 sm:p-8 space-y-4 shadow-xs">
+          <div className="flex items-center justify-between border-b border-stone-100 pb-3">
+            <div>
+              <h3 className="text-lg font-extrabold text-stone-900 font-display">
+                Kogi Ride History & Trip Receipts ({rideHistory.length})
+              </h3>
+              <p className="text-xs text-stone-500">
+                View your completed and active Keke & Saloon Car trips, assigned drivers, and official receipts.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {rideHistory.map((ride) => (
+              <div
+                key={ride.id}
+                className="p-4 rounded-2xl border border-stone-200 bg-stone-50/70 flex flex-col justify-between gap-3"
+              >
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-blue-700">
+                      {ride.vehicleType === 'KEKE' ? '🛺 Keke (Tricycle)' : '🚗 Saloon Car'} {ride.tripMode === 'PRIVATE_HIRE' ? '• Private Hire' : ''}
+                    </span>
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
+                      {ride.status.replace(/_/g, ' ')}
+                    </span>
+                  </div>
+                  <h4 className="font-bold text-sm text-stone-900">
+                    {ride.pickupLocation.name} → {ride.destinationLocation.name}
+                  </h4>
+                  <p className="text-xs text-stone-600">
+                    Distance: <strong>{ride.distanceKm} km</strong> • Est. Duration: <strong>{ride.estimatedMinutes} mins</strong>
+                  </p>
+                  {ride.driver && (
+                    <p className="text-[11px] text-stone-500">
+                      Pilot: <strong className="text-stone-800">{ride.driver.name}</strong> ({ride.driver.vehicleModel} · {ride.driver.plateNumber})
+                    </p>
+                  )}
+                </div>
+
+                <div className="pt-2 border-t border-stone-200 flex items-center justify-between text-xs">
+                  <span className="font-black text-base text-stone-900 tabular-nums">
+                    ₦{ride.totalFare.toLocaleString()}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setActiveInvoice(ride)}
+                    className="px-3 py-1.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-white font-bold cursor-pointer"
+                  >
+                    View Trip Receipt
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

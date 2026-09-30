@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { BUSINESS_INFO } from '../../data/mockData';
+import { validateNigerianPhone } from '../../utils/nigerianPhone';
 import { 
   Scissors, 
   X, 
@@ -27,6 +28,7 @@ export const TailoringModal: React.FC<TailoringModalProps> = ({ isOpen, onClose,
   const [garmentType, setGarmentType] = useState('Ebira Traditional Aso-Oke Agbada 3-Piece');
   const [fabricPreference, setFabricPreference] = useState('Ebira Woven Cloth (Okene Origin)');
   const [colorTheme, setColorTheme] = useState('Emerald Green & Gold Thread');
+  const [quantity, setQuantity] = useState<number>(1);
   const [customerName, setCustomerName] = useState(userProfile.name || '');
   const [customerPhone, setCustomerPhone] = useState(userProfile.phone || '');
   const [customerEmail, setCustomerEmail] = useState(userProfile.email || '');
@@ -52,7 +54,7 @@ export const TailoringModal: React.FC<TailoringModalProps> = ({ isOpen, onClose,
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [selectedPaymentGateway, setSelectedPaymentGateway] = useState<'PAYSTACK' | 'FLUTTERWAVE'>('PAYSTACK');
 
-  // Dynamic cost calculation based on garment & fabric
+  // Dynamic cost calculation based on garment, fabric & quantity
   const calculateEstimatedCost = () => {
     let base = 25000;
     if (garmentType.includes('Agbada')) base = 48000;
@@ -62,9 +64,9 @@ export const TailoringModal: React.FC<TailoringModalProps> = ({ isOpen, onClose,
 
     if (fabricPreference.includes('Ebira Woven')) base += 12000;
     else if (fabricPreference.includes('Italian Wool') || fabricPreference.includes('Cashmere')) base += 15000;
-    else if (fabricPreference.includes('Customer Provided')) base -= 8000;
+    else if (fabricPreference.includes('Customer Will Provide')) base -= 8000;
 
-    return base;
+    return base * Math.max(1, quantity);
   };
 
   const estimatedCost = calculateEstimatedCost();
@@ -72,8 +74,42 @@ export const TailoringModal: React.FC<TailoringModalProps> = ({ isOpen, onClose,
   const handleSubmitAndPay = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!customerName || !customerPhone) {
+    if (!customerName.trim() || !customerPhone.trim()) {
       showToast('Please enter your full name and phone number', 'error');
+      return;
+    }
+
+    const phoneCheck = validateNigerianPhone(customerPhone);
+    if (!phoneCheck.isValid) {
+      showToast(phoneCheck.error || 'Please enter a valid 11-digit Nigerian phone number', 'error', 'Invalid Phone');
+      return;
+    }
+
+    // Validate required measurements (Section 7: invalid or incomplete measurements cannot be submitted)
+    const numChest = Number(chest);
+    const numWaist = Number(waist);
+    const numShoulder = Number(shoulder);
+    const numSleeve = Number(sleeve);
+    const numLength = Number(length);
+    if (
+      !numChest || numChest < 15 || numChest > 90 ||
+      !numWaist || numWaist < 15 || numWaist > 90 ||
+      !numShoulder || numShoulder < 10 || numShoulder > 40 ||
+      !numSleeve || numSleeve < 5 || numSleeve > 45 ||
+      !numLength || numLength < 15 || numLength > 80
+    ) {
+      showToast(
+        'Please enter complete, valid body measurements (Chest, Waist, Shoulder, Sleeve, Top Length in inches).',
+        'error',
+        'Incomplete Measurements'
+      );
+      return;
+    }
+
+    // Validate preferredCompletionDate is not in the past
+    const todayStr = new Date().toISOString().split('T')[0];
+    if (!preferredCompletionDate || preferredCompletionDate < todayStr) {
+      showToast('Preferred completion date cannot be in the past.', 'error', 'Invalid Delivery Date');
       return;
     }
 
@@ -83,19 +119,20 @@ export const TailoringModal: React.FC<TailoringModalProps> = ({ isOpen, onClose,
     setTimeout(() => {
       setIsProcessingPayment(false);
 
-      const request = createTailoringRequest({
-        customerName,
-        customerPhone,
-        customerEmail,
+      createTailoringRequest({
+        customerName: customerName.trim(),
+        customerPhone: phoneCheck.normalized,
+        customerEmail: customerEmail.trim(),
         garmentType,
         fabricPreference,
         colorTheme,
+        quantity: Math.max(1, quantity),
         measurements: {
-          chest: Number(chest) || undefined,
-          waist: Number(waist) || undefined,
-          shoulder: Number(shoulder) || undefined,
-          sleeve: Number(sleeve) || undefined,
-          length: Number(length) || undefined,
+          chest: numChest,
+          waist: numWaist,
+          shoulder: numShoulder,
+          sleeve: numSleeve,
+          length: numLength,
           trouserLength: Number(trouserLength) || undefined,
           neck: Number(neck) || undefined,
           customNotes
@@ -195,15 +232,28 @@ export const TailoringModal: React.FC<TailoringModalProps> = ({ isOpen, onClose,
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-stone-700 mb-1">Color Theme / Combination</label>
                   <input
                     type="text"
                     value={colorTheme}
                     onChange={(e) => setColorTheme(e.target.value)}
-                    placeholder="e.g. Royal Gold & Emerald Green, Midnight Black"
+                    placeholder="e.g. Royal Gold & Emerald Green"
                     className="w-full bg-stone-50 border border-stone-300 rounded-xl px-3 py-2.5 text-xs text-stone-900 focus:outline-hidden focus:border-amber-600"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-stone-700 mb-1">Quantity (Outfits)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={quantity}
+                    onChange={(e) => setQuantity(Math.max(1, Number(e.target.value)))}
+                    className="w-full bg-stone-50 border border-stone-300 rounded-xl px-3 py-2.5 text-xs text-stone-900 font-bold focus:outline-hidden focus:border-amber-600"
                     required
                   />
                 </div>

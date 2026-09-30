@@ -19,7 +19,7 @@ import {
 import { motion } from 'motion/react';
 
 export const LiveRideTracker: React.FC = () => {
-  const { activeRide, cancelRide, completeRide, verifyRidePayment, showToast, setActiveInvoice } = useApp();
+  const { activeRide, cancelRide, completeRide, updateRideStatus, verifyRidePayment, showToast, setActiveInvoice } = useApp();
 
   const [tripProgress, setTripProgress] = useState<number>(15); // 0 to 100%
   const [currentStep, setCurrentStep] = useState<RideRequest['status']>('DRIVER_ASSIGNED');
@@ -224,24 +224,28 @@ export const LiveRideTracker: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          {currentStep === 'TRIP_COMPLETED' ? (
+          {currentStep === 'TRIP_COMPLETED' || activeRide.status === 'IN_PROGRESS' || activeRide.status === 'TRIP_STARTED' ? (
             <button
               onClick={() => completeRide(activeRide.id)}
-              className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-md transition-colors"
+              className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-md transition-colors cursor-pointer"
             >
               ✓ Complete & Get Receipt
             </button>
           ) : (
             <>
               <button
-                onClick={() => completeRide(activeRide.id)}
-                className="px-3 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs font-semibold"
+                onClick={() => {
+                  setCurrentStep('TRIP_STARTED');
+                  setTripProgress(80);
+                  updateRideStatus(activeRide.id, 'IN_PROGRESS');
+                }}
+                className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold cursor-pointer"
               >
-                Simulate Arrival & Complete
+                Start Trip (Passenger Onboard)
               </button>
               <button
                 onClick={() => cancelRide(activeRide.id)}
-                className="px-3 py-2 rounded-xl bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800 text-xs font-semibold"
+                className="px-3 py-2 rounded-xl bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800 text-xs font-semibold cursor-pointer"
               >
                 Cancel Trip
               </button>

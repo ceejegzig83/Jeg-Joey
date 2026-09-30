@@ -95,14 +95,20 @@ export type PaymentMethod =
   | 'USSD' 
   | 'CASH_ON_DELIVERY';
 
-export type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
+export type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED' | 'CANCELLED';
 
 export type OrderStatus = 
+  | 'PENDING'
+  | 'CONFIRMED'
   | 'PLACED' 
+  | 'RECEIVED'
   | 'PROCESSING' 
+  | 'READY'
   | 'READY_FOR_PICKUP' 
+  | 'DISPATCHED'
   | 'OUT_FOR_DELIVERY' 
   | 'DELIVERED' 
+  | 'COMPLETED'
   | 'CANCELLED';
 
 export interface Product {
@@ -119,6 +125,7 @@ export interface Product {
   rating: number;
   reviewCount: number;
   badge?: string;
+  featured?: boolean;
   // Fashion specific
   sizes?: string[];
   colors?: string[];
@@ -145,14 +152,32 @@ export interface CartItem {
   specialNotes?: string;
 }
 
+export type TailoringProductionStage =
+  | 'ORDER_RECEIVED'
+  | 'MEASUREMENT_CONFIRMED'
+  | 'CUTTING'
+  | 'SEWING'
+  | 'FINISHING'
+  | 'QUALITY_CHECK'
+  | 'READY'
+  | 'OUT_FOR_DELIVERY'
+  | 'COMPLETED'
+  | 'REQUESTED'
+  | 'REVIEWING'
+  | 'QUOTED'
+  | 'APPROVED'
+  | 'IN_PRODUCTION';
+
 export interface TailoringRequest {
   id: string;
+  orderReference?: string;
   customerName: string;
   customerPhone: string;
   customerEmail?: string;
   garmentType: string; // e.g. 'Ebira Traditional Aso-Oke', 'Senator Suit', 'Agbada', 'Maxi Dress'
   fabricPreference: string; // e.g. 'Provide Own Fabric', 'Ebira Woven Cloth', 'Premium Cashmere', 'Italian Wool'
   colorTheme: string;
+  quantity?: number;
   measurements: {
     chest?: number;
     waist?: number;
@@ -169,13 +194,14 @@ export interface TailoringRequest {
   preferredCompletionDate: string;
   estimatedCost: number;
   depositPaid: number;
-  status: 'REQUESTED' | 'REVIEWING' | 'QUOTED' | 'APPROVED' | 'IN_PRODUCTION' | 'READY' | 'COMPLETED';
+  status: TailoringProductionStage;
   paymentStatus: PaymentStatus;
   createdAt: string;
 }
 
 export interface CakeOrder {
   id: string;
+  orderReference?: string;
   customerName: string;
   customerPhone: string;
   cakeType: string; // Birthday, Wedding, Anniversary, Graduation
@@ -193,7 +219,18 @@ export interface CakeOrder {
   recipientPhone: string;
   specialInstructions?: string;
   estimatedPrice: number;
-  status: 'RECEIVED' | 'DESIGN_CONFIRMED' | 'BAKING' | 'DECORATING' | 'READY_FOR_DELIVERY' | 'DELIVERED';
+  status:
+    | 'ORDER_RECEIVED'
+    | 'RECEIVED'
+    | 'DESIGN_CONFIRMED'
+    | 'BAKING'
+    | 'DECORATING'
+    | 'READY'
+    | 'READY_FOR_DELIVERY'
+    | 'OUT_FOR_DELIVERY'
+    | 'DELIVERED'
+    | 'COMPLETED'
+    | 'CANCELLED';
   paymentStatus: PaymentStatus;
   createdAt: string;
 }
@@ -212,19 +249,36 @@ export interface CateringPackage {
   popular?: boolean;
 }
 
+export type CateringBookingStatus =
+  | 'REQUEST_RECEIVED'
+  | 'QUOTE_PREPARING'
+  | 'QUOTE_SENT'
+  | 'DEPOSIT_REQUIRED'
+  | 'CONFIRMED'
+  | 'PREPARING'
+  | 'READY'
+  | 'OUT_FOR_DELIVERY'
+  | 'COMPLETED'
+  | 'PENDING_QUOTE'
+  | 'QUOTE_ISSUED'
+  | 'BOOKING_CONFIRMED'
+  | 'PREPARATION'
+  | 'CANCELLED';
+
 export interface CateringBooking {
   id: string;
+  bookingReference?: string;
   customerName: string;
   customerPhone: string;
   customerEmail: string;
-  eventType: 'Wedding' | 'Birthday' | 'Burial' | 'Corporate Event' | 'Political Gathering' | 'Religious Event' | 'Traditional Celebration' | 'Other';
+  eventType: 'Wedding' | 'Birthday' | 'Burial' | 'Burial / Celebration of Life' | 'Naming Ceremony' | 'Graduation' | 'Corporate Event' | 'Political Gathering' | 'Religious Event' | 'Traditional Celebration' | 'Other' | string;
   eventDate: string;
   eventTime: string;
   eventLocation: string; // e.g., 'Okene Civic Centre', 'Kabba Town Hall', 'Lokoja Hotel'
   expectedGuests: number;
   selectedPackageId?: string;
   customMenuPreferences: string[];
-  serviceStyle: 'Buffet' | 'Plated VIP' | 'Packed Boxes' | 'Live Cooking Stations';
+  serviceStyle: 'Buffet' | 'Plated VIP' | 'Packed Boxes' | 'Live Cooking Stations' | string;
   specialRequirements?: string;
   baseFoodCost: number;
   serviceCharge: number;
@@ -232,7 +286,7 @@ export interface CateringBooking {
   totalQuote: number;
   depositRequired: number; // 50% or 100%
   depositPaid: number;
-  status: 'PENDING_QUOTE' | 'QUOTE_ISSUED' | 'BOOKING_CONFIRMED' | 'PREPARATION' | 'COMPLETED' | 'CANCELLED';
+  status: CateringBookingStatus;
   paymentStatus: PaymentStatus;
   createdAt: string;
 }
@@ -251,6 +305,16 @@ export interface LocationPoint {
   longitude: number;
 }
 
+export type RideStatus =
+  | 'SEARCHING_FOR_DRIVER'
+  | 'DRIVER_ASSIGNED'
+  | 'DRIVER_ARRIVING'
+  | 'DRIVER_ARRIVED'
+  | 'TRIP_STARTED'
+  | 'TRIP_IN_PROGRESS'
+  | 'TRIP_COMPLETED'
+  | 'CANCELLED';
+
 export interface RideRequest {
   id: string;
   customerName: string;
@@ -258,6 +322,7 @@ export interface RideRequest {
   pickupLocation: LocationPoint;
   destinationLocation: LocationPoint;
   vehicleType: VehicleType;
+  tripMode?: 'STANDARD' | 'PRIVATE_HIRE';
   distanceKm: number;
   estimatedMinutes: number;
   baseFare: number;
@@ -265,20 +330,23 @@ export interface RideRequest {
   timeFare: number;
   totalFare: number;
   paymentMethod: 'PAYSTACK_CARD' | 'FLUTTERWAVE_CARD' | 'BANK_TRANSFER' | 'USSD';
-  paymentStatus: 'PAID';
+  paymentStatus: PaymentStatus;
   paymentVerifiedAt?: string;
   paymentGatewayRef?: string;
-  status: 
-    | 'SEARCHING_FOR_DRIVER' 
-    | 'DRIVER_ASSIGNED' 
-    | 'DRIVER_ARRIVING' 
-    | 'DRIVER_ARRIVED' 
-    | 'TRIP_STARTED' 
-    | 'TRIP_COMPLETED' 
-    | 'CANCELLED';
+  status: RideStatus;
   driver?: Driver;
   createdAt: string;
   completedAt?: string;
+}
+
+export interface AppNotification {
+  id: string;
+  title: string;
+  message: string;
+  category: 'ORDER' | 'PAYMENT' | 'RIDE' | 'TAILORING' | 'BAKERY' | 'CATERING' | 'VTU';
+  createdAt: string;
+  read: boolean;
+  isDemoNotification: boolean;
 }
 
 export interface Driver {
@@ -299,8 +367,10 @@ export interface Driver {
 export interface Order {
   id: string;
   orderNumber: string;
+  customerId?: string;
   customerName: string;
   customerPhone: string;
+  customerEmail?: string;
   customerAddress: string;
   deliveryArea: string;
   division: 'FASHION' | 'BAKERY' | 'GROCERY' | 'MULTI';
@@ -312,21 +382,155 @@ export interface Order {
   total: number;
   paymentMethod: PaymentMethod;
   paymentStatus: PaymentStatus;
+  paymentReference?: string;
   paymentVerifiedBy?: string;
   paymentVerifiedAt?: string;
+  inventoryDeducted?: boolean;
   orderStatus: OrderStatus;
   createdAt: string;
   estimatedDeliveryTime?: string;
   notes?: string;
 }
 
+export type UserRole = 'CUSTOMER' | 'DRIVER' | 'ADMIN' | 'SUPER_ADMIN';
+
 export interface UserProfile {
+  id?: string;
   name: string;
   phone: string;
   email: string;
   defaultAddress: string;
   defaultArea: string;
   role: 'CUSTOMER' | 'DRIVER' | 'ADMIN';
+  isAuthenticated?: boolean;
+}
+
+export type PaymentLifecycleStatus =
+  | 'INITIATED'
+  | 'PENDING'
+  | 'SUCCESS'
+  | 'FAILED'
+  | 'ABANDONED'
+  | 'REFUNDED';
+
+export type PayableEntityType =
+  | 'ORDER'
+  | 'TAILORING'
+  | 'CAKE'
+  | 'CATERING'
+  | 'RIDE'
+  | 'VTU';
+
+export interface PaymentRecord {
+  id: string;
+  reference: string;
+  idempotencyKey?: string;
+  entityType: PayableEntityType;
+  entityId: string;
+  customerId?: string;
+  customerEmail: string;
+  customerPhone?: string;
+  amountNaira: number;
+  amountKobo: number;
+  currency: 'NGN';
+  channel: PaymentMethod;
+  provider: 'PAYSTACK' | 'DEMO_GATEWAY' | 'CASH_ON_DELIVERY';
+  mode: 'TEST_MODE' | 'LIVE_MODE';
+  status: PaymentLifecycleStatus;
+  authorizationUrl?: string;
+  accessCode?: string;
+  gatewayTransactionId?: string;
+  verifiedAt?: string;
+  verifiedBy?: 'PAYSTACK_API' | 'PAYSTACK_WEBHOOK' | 'DEMO_VERIFIER' | 'ADMIN_MANUAL';
+  metadata?: Record<string, any>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PaymentEventRecord {
+  id: string;
+  paymentId: string;
+  reference: string;
+  eventType: string;
+  previousStatus?: PaymentLifecycleStatus;
+  newStatus: PaymentLifecycleStatus;
+  source: 'BACKEND_INIT' | 'BACKEND_VERIFY' | 'PAYSTACK_WEBHOOK' | 'ADMIN_ACTION';
+  signatureValid?: boolean;
+  payloadSummary?: string;
+  createdAt: string;
+}
+
+export interface AuditLogRecord {
+  id: string;
+  actorId: string;
+  actorName: string;
+  actorRole: UserRole | 'SYSTEM' | 'WEBHOOK';
+  action: string;
+  entityType:
+    | 'PRODUCT'
+    | 'INVENTORY'
+    | 'ORDER'
+    | 'PAYMENT'
+    | 'TAILORING'
+    | 'CAKE'
+    | 'CATERING'
+    | 'RIDE'
+    | 'DRIVER'
+    | 'VTU'
+    | 'AUTH'
+    | 'SETTINGS';
+  entityId: string;
+  summary: string;
+  previousValue?: string;
+  newValue?: string;
+  ipAddress?: string;
+  createdAt: string;
+}
+
+export interface InvoiceRecord {
+  id: string;
+  invoiceNumber: string;
+  entityType: PayableEntityType;
+  entityId: string;
+  customerName: string;
+  customerPhone: string;
+  customerEmail?: string;
+  subtotal: number;
+  deliveryOrServiceFee: number;
+  discount: number;
+  totalAmount: number;
+  paymentStatus: PaymentStatus;
+  paymentReference?: string;
+  issuedAt: string;
+  paidAt?: string;
+}
+
+export interface SystemArchitectureStatus {
+  environment: string;
+  operationalMode: 'DEMO_MODE' | 'PRODUCTION_MODE';
+  database: {
+    mode: 'DEMO_PERSISTENT' | 'POSTGRESQL_LIVE';
+    connected: boolean;
+    engine: string;
+    entitiesCount: Record<string, number>;
+  };
+  paystack: {
+    mode: 'TEST_MODE' | 'LIVE_MODE';
+    configured: boolean;
+    webhookEndpoint: string;
+  };
+  vtu: {
+    mode: 'TEST_MODE' | 'LIVE_MODE';
+    providerName: string;
+    configured: boolean;
+  };
+  security: {
+    jwtConfigured: boolean;
+    rbacEnabled: boolean;
+    webhookHmacEnabled: boolean;
+    auditLoggingEnabled: boolean;
+    rateLimitingEnabled: boolean;
+  };
 }
 
 export interface BespokeTailoringSample {

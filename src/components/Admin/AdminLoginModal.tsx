@@ -7,7 +7,9 @@ export const AdminLoginModal: React.FC = () => {
   const { 
     isAdminLoginModalOpen, 
     setIsAdminLoginModalOpen, 
-    loginAdmin 
+    loginAdmin,
+    setAuthToken,
+    refreshSystemData
   } = useApp();
 
   const [username, setUsername] = useState('');
@@ -18,10 +20,35 @@ export const AdminLoginModal: React.FC = () => {
 
   if (!isAdminLoginModalOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
     setIsSubmitting(true);
+
+    try {
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: username.trim(), password })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setIsSubmitting(false);
+          if (data.token) {
+            setAuthToken(data.token);
+          }
+          loginAdmin(username.trim(), password);
+          await refreshSystemData();
+          setUsername('');
+          setPassword('');
+          setIsAdminLoginModalOpen(false);
+          return;
+        }
+      }
+    } catch {
+      // Fallback to local auth verification if server endpoint unreachable
+    }
 
     setTimeout(() => {
       setIsSubmitting(false);
@@ -33,7 +60,7 @@ export const AdminLoginModal: React.FC = () => {
       } else {
         setErrorMessage('Invalid Administrator username or password. Access denied.');
       }
-    }, 400);
+    }, 300);
   };
 
   return (

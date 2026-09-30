@@ -61,6 +61,8 @@ export const AdminDashboard: React.FC = () => {
     rideHistory, 
     updateOrderStatus,
     updateTailoringStatus,
+    updateCakeStatus,
+    updateCateringStatus,
     verifyOrderCoDPayment,
     verifyRidePayment,
     sendReceiptNotification,
@@ -106,16 +108,31 @@ export const AdminDashboard: React.FC = () => {
     exportSiteDataBackup,
     importSiteDataBackup,
     vtuTransactions,
-    vtuDataPlans
+    vtuDataPlans,
+    systemStatus,
+    paymentRecords,
+    paymentEvents,
+    auditLogs,
+    refreshSystemData,
+    verifyOrderPayment,
+    refundPaymentRecord
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<
-    'OVERVIEW' | 'VTU' | 'PRODUCTS' | 'TAILORING' | 'CAKES' | 'CATERING' | 'TRANSPORT' | 'ORDERS' | 'PAYMENTS' | 'SETTINGS'
+    'OVERVIEW' | 'VTU' | 'PRODUCTS' | 'TAILORING' | 'CAKES' | 'CATERING' | 'TRANSPORT' | 'ORDERS' | 'CUSTOMERS' | 'PAYMENTS' | 'SETTINGS'
   >('OVERVIEW');
 
   // Product filters
   const [productDivisionFilter, setProductDivisionFilter] = useState<'ALL' | 'FASHION' | 'BAKERY' | 'GROCERY'>('ALL');
   const [productSearch, setProductSearch] = useState('');
+
+  // Order filters
+  const [orderSearch, setOrderSearch] = useState('');
+  const [orderStatusFilter, setOrderStatusFilter] = useState<string>('ALL');
+
+  // Customer filters
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [selectedCustomerPhone, setSelectedCustomerPhone] = useState<string | null>(null);
 
   // Payment filters
   const [paymentFilter, setPaymentFilter] = useState<'ALL' | 'COD_PENDING' | 'COD_VERIFIED' | 'ONLINE'>('ALL');
@@ -172,6 +189,89 @@ export const AdminDashboard: React.FC = () => {
       p.category.toLowerCase().includes(productSearch.toLowerCase());
     return matchesDiv && matchesQuery;
   });
+
+  // Filtered Orders
+  const filteredOrders = orders.filter(o => {
+    const matchesStatus = orderStatusFilter === 'ALL' || o.orderStatus === orderStatusFilter;
+    const q = orderSearch.trim().toLowerCase();
+    const matchesQuery = q === '' ||
+      o.orderNumber.toLowerCase().includes(q) ||
+      o.customerName.toLowerCase().includes(q) ||
+      o.customerPhone.toLowerCase().includes(q) ||
+      o.deliveryArea.toLowerCase().includes(q);
+    return matchesStatus && matchesQuery;
+  });
+
+  // Aggregated Customers Directory from all application records
+  const customersList = React.useMemo(() => {
+    const map = new Map<string, {
+      name: string;
+      phone: string;
+      email: string;
+      address: string;
+      ordersCount: number;
+      tailoringCount: number;
+      cateringCount: number;
+      ridesCount: number;
+      vtuCount: number;
+      totalSpent: number;
+    }>();
+
+    const ensureCustomer = (name: string, phone: string, email = '', address = 'Okene, Kogi State') => {
+      const key = phone.trim() || name.trim();
+      if (!map.has(key)) {
+        map.set(key, {
+          name: name || 'Valued Customer',
+          phone: phone || 'N/A',
+          email: email || 'customer@flourishdestiny.ng',
+          address,
+          ordersCount: 0,
+          tailoringCount: 0,
+          cateringCount: 0,
+          ridesCount: 0,
+          vtuCount: 0,
+          totalSpent: 0
+        });
+      }
+      return map.get(key)!;
+    };
+
+    orders.forEach(o => {
+      const c = ensureCustomer(o.customerName, o.customerPhone, '', `${o.customerAddress}, ${o.deliveryArea}`);
+      c.ordersCount += 1;
+      c.totalSpent += o.total;
+    });
+    tailoringRequests.forEach(t => {
+      const c = ensureCustomer(t.customerName, t.customerPhone);
+      c.tailoringCount += 1;
+      c.totalSpent += t.estimatedCost;
+    });
+    cateringBookings.forEach(b => {
+      const c = ensureCustomer(b.customerName, b.customerPhone, b.customerEmail || '', b.eventLocation);
+      c.cateringCount += 1;
+      c.totalSpent += b.totalQuote;
+    });
+    rideHistory.forEach(r => {
+      const c = ensureCustomer(r.customerName, r.customerPhone, '', r.pickupLocation.name);
+      c.ridesCount += 1;
+      c.totalSpent += r.totalFare;
+    });
+    vtuTransactions.forEach(v => {
+      const c = ensureCustomer(v.customerName || 'VTU Customer', v.phoneNumber, v.customerEmail || '');
+      c.vtuCount += 1;
+      if (v.status === 'SUCCESSFUL') c.totalSpent += v.totalAmount;
+    });
+
+    return Array.from(map.values()).filter(c => {
+      const q = customerSearch.trim().toLowerCase();
+      if (!q) return true;
+      return (
+        c.name.toLowerCase().includes(q) ||
+        c.phone.toLowerCase().includes(q) ||
+        c.address.toLowerCase().includes(q)
+      );
+    });
+  }, [orders, tailoringRequests, cateringBookings, rideHistory, vtuTransactions, customerSearch]);
 
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
@@ -346,24 +446,36 @@ export const AdminDashboard: React.FC = () => {
       </div>
 
       {/* KPI Cards */}
+      <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-950">
+        <div className="flex items-center gap-2 font-bold">
+          <span className="px-2 py-0.5 rounded bg-amber-500 text-stone-950 font-black uppercase text-[10px]">
+            DEMO DATA / LIVE APP STATE
+          </span>
+          <span>Analytics and metrics below are dynamically calculated from active application records (Orders, Sales, Payments, Rides &amp; VTU).</span>
+        </div>
+        <span className="font-mono text-[11px] font-bold text-amber-800">
+          {orders.length} Orders • {rideHistory.length} Rides • {vtuTransactions.length} VTU Tx
+        </span>
+      </div>
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-xs">
-          <span className="text-xs font-semibold text-stone-500 block">Total Gross Revenue</span>
+          <span className="text-xs font-semibold text-stone-500 block">Total Gross Revenue (Demo Data)</span>
           <div className="text-2xl font-black text-stone-900 mt-1">
             ₦{totalRevenue.toLocaleString()}
           </div>
           <span className="text-[11px] text-emerald-600 font-bold flex items-center gap-1 mt-1">
-            <TrendingUp className="w-3 h-3" /> Settled across all 5 divisions
+            <TrendingUp className="w-3 h-3" /> Settled across all 6 divisions
           </span>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-xs">
-          <span className="text-xs font-semibold text-stone-500 block">Active Catalog Items</span>
+          <span className="text-xs font-semibold text-stone-500 block">Active Catalog &amp; Inventory</span>
           <div className="text-2xl font-black text-amber-600 mt-1">
             {products.length} Products
           </div>
           <span className="text-[11px] text-stone-500 block mt-1">
-            {bespokeSamples.length} Bespoke • {cakeSamples.length} Cake Samples
+            {products.filter(p => p.inStock && p.stockCount > 5).length} In Stock • {products.filter(p => p.inStock && p.stockCount > 0 && p.stockCount <= 5).length} Low • {products.filter(p => !p.inStock || p.stockCount <= 0).length} Out
           </span>
         </div>
 
@@ -378,9 +490,9 @@ export const AdminDashboard: React.FC = () => {
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-xs">
-          <span className="text-xs font-semibold text-stone-500 block">Fleet & Transit Network</span>
+          <span className="text-xs font-semibold text-stone-500 block">Fleet &amp; Customer Directory</span>
           <div className="text-2xl font-black text-blue-700 mt-1">
-            {drivers.length} Drivers
+            {drivers.length} Drivers • {customersList.length} Clients
           </div>
           <span className="text-[11px] text-stone-500 mt-1 block">
             {transportRoutes.length} Fixed Routes • {cateringPackages.length} Catering Pkgs
@@ -391,16 +503,17 @@ export const AdminDashboard: React.FC = () => {
       {/* Tabs Navigation */}
       <div className="flex flex-wrap gap-2 border-b border-stone-200 pb-3">
         {[
-          { key: 'OVERVIEW', label: '📊 Overview' },
-          { key: 'VTU', label: `📱 Airtime & Data VTU (${vtuTransactions.length})` },
-          { key: 'PRODUCTS', label: `🛍️ Products & Inventory (${products.length})` },
-          { key: 'TAILORING', label: `✂️ Fashion & Bespoke (${tailoringRequests.length})` },
-          { key: 'CAKES', label: `🎂 Bakery & Cakes (${cakeOrders.length})` },
-          { key: 'CATERING', label: `🍽️ Catering (${cateringBookings.length})` },
-          { key: 'TRANSPORT', label: `🛺 Transport (${drivers.length} Drivers)` },
+          { key: 'OVERVIEW', label: '📊 Overview & Analytics' },
           { key: 'ORDERS', label: `📦 Orders (${orders.length})` },
-          { key: 'PAYMENTS', label: `💳 Payments & CoD (${pendingCodOrders.length})` },
-          { key: 'SETTINGS', label: '⚙️ Site CMS & Settings' },
+          { key: 'PRODUCTS', label: `🛍️ Products & Inventory (${products.length})` },
+          { key: 'CUSTOMERS', label: `👥 Customers (${customersList.length})` },
+          { key: 'TRANSPORT', label: `🛺 Drivers & Rides (${drivers.length})` },
+          { key: 'TAILORING', label: `✂️ Tailoring (${tailoringRequests.length})` },
+          { key: 'CAKES', label: `🎂 Bakery (${cakeOrders.length})` },
+          { key: 'CATERING', label: `🍽️ Catering (${cateringBookings.length})` },
+          { key: 'VTU', label: `📱 VTU (${vtuTransactions.length})` },
+          { key: 'PAYMENTS', label: `💳 Payments (${orders.length})` },
+          { key: 'SETTINGS', label: '⚙️ Settings' },
         ].map((tab) => (
           <button
             key={tab.key}
@@ -663,17 +776,49 @@ export const AdminDashboard: React.FC = () => {
                           <button
                             onClick={() => toggleProductStock(product.id)}
                             className={`px-2.5 py-1 rounded-full text-[10px] font-bold cursor-pointer transition-colors ${
-                              product.inStock
-                                ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
-                                : 'bg-rose-100 text-rose-800 hover:bg-rose-200'
+                              !product.inStock || product.stockCount <= 0
+                                ? 'bg-rose-100 text-rose-800 hover:bg-rose-200'
+                                : product.stockCount <= 5
+                                ? 'bg-amber-100 text-amber-900 hover:bg-amber-200'
+                                : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
                             }`}
                             title="Click to toggle In-Stock / Out-of-Stock"
                           >
-                            {product.inStock ? '✓ In Stock' : '✕ Out of Stock'}
+                            {!product.inStock || product.stockCount <= 0
+                              ? '✕ OUT OF STOCK'
+                              : product.stockCount <= 5
+                              ? '⚠ LOW STOCK'
+                              : '✓ IN STOCK'}
                           </button>
                         </td>
                         <td className="p-3.5 font-medium text-stone-700">
-                          {product.stockCount} units
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const nextQty = Math.max(0, product.stockCount - 1);
+                                updateProduct({ ...product, stockCount: nextQty, inStock: nextQty > 0 });
+                              }}
+                              className="w-6 h-6 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold text-xs flex items-center justify-center cursor-pointer"
+                              title="Decrease stock"
+                            >
+                              -
+                            </button>
+                            <span className="min-w-[4rem] text-center font-bold tabular-nums">
+                              {product.stockCount} units
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const nextQty = product.stockCount + 5;
+                                updateProduct({ ...product, stockCount: nextQty, inStock: true });
+                              }}
+                              className="w-6 h-6 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold text-xs flex items-center justify-center cursor-pointer"
+                              title="Add 5 units"
+                            >
+                              +
+                            </button>
+                          </div>
                         </td>
                         <td className="p-3.5 text-right">
                           <div className="flex items-center justify-end gap-1.5">
@@ -682,19 +827,17 @@ export const AdminDashboard: React.FC = () => {
                                 setProductToEdit(product);
                                 setIsProductModalOpen(true);
                               }}
-                              className="p-1.5 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 hover:text-stone-950 transition-colors"
+                              className="p-1.5 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 hover:text-stone-950 transition-colors cursor-pointer"
                               title="Edit Product"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
                             </button>
                             <button
                               onClick={() => {
-                                if (window.confirm(`Are you sure you want to delete "${product.name}"?`)) {
-                                  deleteProduct(product.id);
-                                  showToast(`Product "${product.name}" removed.`, 'info');
-                                }
+                                deleteProduct(product.id);
+                                showToast(`Product "${product.name}" removed.`, 'info');
                               }}
-                              className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 transition-colors"
+                              className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 transition-colors cursor-pointer"
                               title="Delete Product"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -827,13 +970,20 @@ export const AdminDashboard: React.FC = () => {
                   ) : (
                     tailoringRequests.map((req) => (
                       <tr key={req.id} className="hover:bg-stone-50/50">
-                        <td className="p-3.5 font-mono font-bold text-stone-900">{req.id}</td>
+                        <td className="p-3.5 font-mono font-bold text-stone-900">
+                          <div>{req.orderReference || req.id}</div>
+                          {req.orderReference && req.orderReference !== req.id && (
+                            <div className="text-[10px] text-stone-400">{req.id}</div>
+                          )}
+                        </td>
                         <td className="p-3.5">
                           <div className="font-bold text-stone-900">{req.customerName}</div>
                           <div className="text-stone-500">{req.customerPhone}</div>
                         </td>
                         <td className="p-3.5">
-                          <div className="font-semibold text-stone-900">{req.garmentType}</div>
+                          <div className="font-semibold text-stone-900">
+                            {req.garmentType} {req.quantity && req.quantity > 1 ? `(×${req.quantity})` : ''}
+                          </div>
                           <div className="text-stone-500">{req.fabricPreference} • {req.colorTheme}</div>
                         </td>
                         <td className="p-3.5 font-black text-amber-700">₦{req.estimatedCost.toLocaleString()}</td>
@@ -843,12 +993,15 @@ export const AdminDashboard: React.FC = () => {
                             onChange={(e) => updateTailoringStatus(req.id, e.target.value as any)}
                             className="bg-stone-100 border border-stone-300 rounded-lg px-2 py-1 text-xs font-semibold"
                           >
-                            <option value="PAYMENT_CONFIRMED">Payment Confirmed</option>
-                            <option value="MEASUREMENTS_VERIFIED">Measurements Verified</option>
-                            <option value="FABRIC_CUTTING">Fabric Cutting</option>
-                            <option value="STITCHING_IN_PROGRESS">Stitching in Progress</option>
-                            <option value="QUALITY_INSPECTION">Quality Inspection</option>
-                            <option value="READY_FOR_DELIVERY">Ready for Delivery</option>
+                            <option value="ORDER_RECEIVED">ORDER RECEIVED</option>
+                            <option value="MEASUREMENT_CONFIRMED">MEASUREMENT CONFIRMED</option>
+                            <option value="CUTTING">CUTTING</option>
+                            <option value="SEWING">SEWING</option>
+                            <option value="FINISHING">FINISHING</option>
+                            <option value="QUALITY_CHECK">QUALITY CHECK</option>
+                            <option value="READY">READY</option>
+                            <option value="OUT_FOR_DELIVERY">OUT FOR DELIVERY</option>
+                            <option value="COMPLETED">COMPLETED</option>
                           </select>
                         </td>
                       </tr>
@@ -978,7 +1131,9 @@ export const AdminDashboard: React.FC = () => {
                   ) : (
                     cakeOrders.map((cake) => (
                       <tr key={cake.id} className="hover:bg-stone-50/50">
-                        <td className="p-3.5 font-mono font-bold text-stone-900">{cake.id}</td>
+                        <td className="p-3.5 font-mono font-bold text-stone-900">
+                          <div>{cake.orderReference || cake.id}</div>
+                        </td>
                         <td className="p-3.5">
                           <div className="font-bold text-stone-900">{cake.recipientName}</div>
                           <div className="text-stone-500">{cake.recipientPhone}</div>
@@ -993,9 +1148,29 @@ export const AdminDashboard: React.FC = () => {
                         </td>
                         <td className="p-3.5 font-black text-stone-900">₦{cake.estimatedPrice.toLocaleString()}</td>
                         <td className="p-3.5">
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900">
-                            {cake.status}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={cake.status}
+                              onChange={(e) => updateCakeStatus(cake.id, e.target.value as any)}
+                              className="bg-stone-100 border border-stone-300 rounded-lg px-2 py-1 text-xs font-semibold text-stone-900"
+                            >
+                              <option value="PENDING_DEPOSIT">PENDING DEPOSIT</option>
+                              <option value="SCHEDULED">SCHEDULED</option>
+                              <option value="BAKING">BAKING</option>
+                              <option value="DECORATING">DECORATING</option>
+                              <option value="READY_FOR_PICKUP">READY FOR PICKUP</option>
+                              <option value="OUT_FOR_DELIVERY">OUT FOR DELIVERY</option>
+                              <option value="DELIVERED">DELIVERED</option>
+                              <option value="COMPLETED">COMPLETED</option>
+                            </select>
+                            <button
+                              onClick={() => setActiveInvoice(cake)}
+                              className="p-1 text-stone-500 hover:text-stone-900"
+                              title="View Cake Invoice"
+                            >
+                              <FileText className="w-4 h-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -1171,6 +1346,88 @@ export const AdminDashboard: React.FC = () => {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* Client Event Catering Bookings & Reservations Table */}
+          <div className="bg-white rounded-3xl border border-stone-200 overflow-hidden shadow-xs">
+            <div className="p-5 border-b border-stone-200 flex items-center justify-between">
+              <h3 className="font-bold text-base text-stone-900">Event Catering Reservations &amp; Quotes ({cateringBookings.length})</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-stone-50 text-stone-700 font-bold border-b border-stone-200">
+                  <tr>
+                    <th className="p-3.5">Booking Ref</th>
+                    <th className="p-3.5">Client &amp; Phone</th>
+                    <th className="p-3.5">Event &amp; Guests</th>
+                    <th className="p-3.5">Venue &amp; Date</th>
+                    <th className="p-3.5">Quote / Deposit</th>
+                    <th className="p-3.5">Catering Stage</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-100">
+                  {cateringBookings.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="p-6 text-center text-stone-500">
+                        No catering reservations submitted yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    cateringBookings.map((booking) => (
+                      <tr key={booking.id} className="hover:bg-stone-50/50">
+                        <td className="p-3.5 font-mono font-bold text-stone-900">
+                          {booking.bookingReference || booking.id}
+                        </td>
+                        <td className="p-3.5">
+                          <div className="font-bold text-stone-900">{booking.customerName}</div>
+                          <div className="text-stone-500">{booking.customerPhone}</div>
+                        </td>
+                        <td className="p-3.5">
+                          <div className="font-bold text-rose-800">{booking.eventType}</div>
+                          <div className="text-stone-500">{booking.expectedGuests} Guests • {booking.serviceStyle}</div>
+                        </td>
+                        <td className="p-3.5">
+                          <div className="font-semibold text-stone-900">{booking.eventLocation}</div>
+                          <div className="text-stone-500">{booking.eventDate} ({booking.eventTime})</div>
+                        </td>
+                        <td className="p-3.5">
+                          <div className="font-black text-stone-900">₦{booking.totalQuote.toLocaleString()}</div>
+                          <div className="text-[10px] font-bold text-emerald-700">
+                            Deposit: ₦{booking.depositPaid.toLocaleString()}
+                          </div>
+                        </td>
+                        <td className="p-3.5">
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={booking.status}
+                              onChange={(e) => updateCateringStatus(booking.id, e.target.value as any)}
+                              className="bg-stone-100 border border-stone-300 rounded-lg px-2 py-1 text-xs font-semibold text-stone-900"
+                            >
+                              <option value="REQUEST_RECEIVED">REQUEST RECEIVED</option>
+                              <option value="QUOTE_PREPARING">QUOTE PREPARING</option>
+                              <option value="QUOTE_SENT">QUOTE SENT</option>
+                              <option value="DEPOSIT_REQUIRED">DEPOSIT REQUIRED</option>
+                              <option value="CONFIRMED">CONFIRMED</option>
+                              <option value="PREPARING">PREPARING</option>
+                              <option value="READY">READY</option>
+                              <option value="OUT_FOR_DELIVERY">OUT FOR DELIVERY</option>
+                              <option value="COMPLETED">COMPLETED</option>
+                            </select>
+                            <button
+                              onClick={() => setActiveInvoice(booking)}
+                              className="p-1 text-stone-500 hover:text-stone-900"
+                              title="View Catering Invoice"
+                            >
+                              <FileText className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -1432,9 +1689,43 @@ export const AdminDashboard: React.FC = () => {
       {/* ========================================================================= */}
       {activeTab === 'ORDERS' && (
         <div className="bg-white rounded-3xl border border-stone-200 overflow-hidden shadow-xs">
-          <div className="p-5 border-b border-stone-200 flex justify-between items-center bg-stone-50">
-            <h3 className="font-bold text-base text-stone-900">Customer Orders Management</h3>
-            <span className="text-xs font-semibold text-stone-500">{orders.length} Total Orders</span>
+          <div className="p-5 border-b border-stone-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-stone-50">
+            <div>
+              <h3 className="font-bold text-base text-stone-900">Customer Orders Management</h3>
+              <span className="text-xs font-semibold text-stone-500">
+                Showing {filteredOrders.length} of {orders.length} Total Orders
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-stone-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={orderSearch}
+                  onChange={(e) => setOrderSearch(e.target.value)}
+                  placeholder="Search order ID, name, phone..."
+                  className="pl-8 pr-3 py-1.5 bg-white border border-stone-300 rounded-xl text-xs text-stone-900"
+                />
+              </div>
+
+              <select
+                value={orderStatusFilter}
+                onChange={(e) => setOrderStatusFilter(e.target.value)}
+                className="px-3 py-1.5 bg-white border border-stone-300 rounded-xl text-xs font-bold text-stone-800"
+              >
+                <option value="ALL">All Statuses</option>
+                <option value="PENDING">PENDING</option>
+                <option value="PLACED">PLACED</option>
+                <option value="CONFIRMED">CONFIRMED</option>
+                <option value="PROCESSING">PROCESSING</option>
+                <option value="READY">READY</option>
+                <option value="OUT_FOR_DELIVERY">OUT FOR DELIVERY</option>
+                <option value="COMPLETED">COMPLETED</option>
+                <option value="DELIVERED">DELIVERED</option>
+                <option value="CANCELLED">CANCELLED</option>
+              </select>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
@@ -1450,48 +1741,207 @@ export const AdminDashboard: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {orders.map((order) => (
-                  <tr key={order.id} className="hover:bg-stone-50/50">
-                    <td className="p-3.5 font-mono font-bold text-stone-900">{order.orderNumber}</td>
-                    <td className="p-3.5">
-                      <div className="font-bold text-stone-900">{order.customerName}</div>
-                      <div className="text-stone-500">{order.customerPhone}</div>
-                    </td>
-                    <td className="p-3.5 text-stone-600">{order.deliveryArea}</td>
-                    <td className="p-3.5 text-stone-600">{order.items.length} items</td>
-                    <td className="p-3.5 font-black text-stone-900">₦{order.total.toLocaleString()}</td>
-                    <td className="p-3.5">
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        order.paymentStatus === 'PAID' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                      }`}>
-                        {order.paymentStatus} ({order.paymentMethod.replace(/_/g, ' ')})
-                      </span>
-                    </td>
-                    <td className="p-3.5">
-                      <div className="flex items-center gap-2">
-                        <select
-                          value={order.orderStatus}
-                          onChange={(e) => updateOrderStatus(order.id, e.target.value as any)}
-                          className="bg-stone-100 border border-stone-300 rounded-lg px-2 py-1 text-xs font-semibold"
-                        >
-                          <option value="RECEIVED">Received</option>
-                          <option value="PROCESSING">Processing</option>
-                          <option value="DISPATCHED">Dispatched</option>
-                          <option value="DELIVERED">Delivered</option>
-                        </select>
-                        <button
-                          onClick={() => setActiveInvoice(order)}
-                          className="p-1 text-stone-500 hover:text-stone-900"
-                          title="View Invoice"
-                        >
-                          <FileText className="w-4 h-4" />
-                        </button>
-                      </div>
+                {filteredOrders.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center text-stone-500">
+                      No orders match your current search or status filter.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  filteredOrders.map((order) => (
+                    <tr key={order.id} className="hover:bg-stone-50/50">
+                      <td className="p-3.5 font-mono font-bold text-stone-900">{order.orderNumber}</td>
+                      <td className="p-3.5">
+                        <div className="font-bold text-stone-900">{order.customerName}</div>
+                        <div className="text-stone-500">{order.customerPhone}</div>
+                      </td>
+                      <td className="p-3.5 text-stone-600">{order.deliveryArea}</td>
+                      <td className="p-3.5 text-stone-600">{order.items.length} items</td>
+                      <td className="p-3.5 font-black text-stone-900">₦{order.total.toLocaleString()}</td>
+                      <td className="p-3.5">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          order.paymentStatus === 'PAID' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                        }`}>
+                          {order.paymentStatus} ({order.paymentMethod.replace(/_/g, ' ')})
+                        </span>
+                      </td>
+                      <td className="p-3.5">
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={order.orderStatus}
+                            onChange={(e) => updateOrderStatus(order.id, e.target.value as any)}
+                            className="bg-stone-100 border border-stone-300 rounded-lg px-2 py-1 text-xs font-semibold"
+                          >
+                            <option value="PENDING">Pending</option>
+                            <option value="PLACED">Placed</option>
+                            <option value="CONFIRMED">Confirmed</option>
+                            <option value="RECEIVED">Received</option>
+                            <option value="PROCESSING">Processing</option>
+                            <option value="READY">Ready</option>
+                            <option value="READY_FOR_PICKUP">Ready for Pickup</option>
+                            <option value="DISPATCHED">Dispatched</option>
+                            <option value="OUT_FOR_DELIVERY">Out for Delivery</option>
+                            <option value="DELIVERED">Delivered</option>
+                            <option value="COMPLETED">Completed</option>
+                            <option value="CANCELLED">Cancelled</option>
+                          </select>
+                          <button
+                            onClick={() => setActiveInvoice(order)}
+                            className="p-1 text-stone-500 hover:text-stone-900 cursor-pointer"
+                            title="View Invoice"
+                          >
+                            <FileText className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 7B. CUSTOMERS DIRECTORY TAB */}
+      {/* ========================================================================= */}
+      {activeTab === 'CUSTOMERS' && (
+        <div className="space-y-5">
+          <div className="bg-white rounded-3xl border border-stone-200 overflow-hidden shadow-xs">
+            <div className="p-5 border-b border-stone-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-stone-50">
+              <div>
+                <h3 className="font-bold text-base text-stone-900 flex items-center gap-2">
+                  <Users className="w-4 h-4 text-amber-600" />
+                  <span>Customer Directory &amp; Multi-Service Profiles</span>
+                </h3>
+                <p className="text-xs text-stone-500">
+                  Search customers and inspect their Store Orders, Tailoring, Catering, Rides &amp; VTU activity.
+                </p>
+              </div>
+
+              <div className="relative w-full sm:w-72">
+                <Search className="w-3.5 h-3.5 text-stone-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={customerSearch}
+                  onChange={(e) => setCustomerSearch(e.target.value)}
+                  placeholder="Search customer name, phone, location..."
+                  className="w-full pl-8 pr-3 py-1.5 bg-white border border-stone-300 rounded-xl text-xs text-stone-900"
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-stone-100 text-stone-700 font-bold border-b border-stone-200">
+                  <tr>
+                    <th className="p-3.5">Customer Name</th>
+                    <th className="p-3.5">Phone &amp; Email</th>
+                    <th className="p-3.5">Primary Kogi Location</th>
+                    <th className="p-3.5">Activity Breakdown</th>
+                    <th className="p-3.5">Total Value</th>
+                    <th className="p-3.5 text-right">Profile</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-100">
+                  {customersList.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="p-8 text-center text-stone-500">
+                        No customers match your search criteria.
+                      </td>
+                    </tr>
+                  ) : (
+                    customersList.map((cust) => (
+                      <React.Fragment key={cust.phone}>
+                        <tr className="hover:bg-stone-50/60">
+                          <td className="p-3.5 font-bold text-stone-900">{cust.name}</td>
+                          <td className="p-3.5">
+                            <div className="font-mono font-semibold text-stone-800">{cust.phone}</div>
+                            <div className="text-[11px] text-stone-400">{cust.email}</div>
+                          </td>
+                          <td className="p-3.5 text-stone-600">{cust.address}</td>
+                          <td className="p-3.5">
+                            <div className="flex flex-wrap gap-1.5 text-[10px] font-bold">
+                              {cust.ordersCount > 0 && (
+                                <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-900">
+                                  {cust.ordersCount} Orders
+                                </span>
+                              )}
+                              {cust.tailoringCount > 0 && (
+                                <span className="px-2 py-0.5 rounded bg-stone-200 text-stone-800">
+                                  {cust.tailoringCount} Tailoring
+                                </span>
+                              )}
+                              {cust.cateringCount > 0 && (
+                                <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-800">
+                                  {cust.cateringCount} Catering
+                                </span>
+                              )}
+                              {cust.ridesCount > 0 && (
+                                <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800">
+                                  {cust.ridesCount} Rides
+                                </span>
+                              )}
+                              {cust.vtuCount > 0 && (
+                                <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-800">
+                                  {cust.vtuCount} VTU
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-3.5 font-black text-stone-900 tabular-nums">
+                            ₦{cust.totalSpent.toLocaleString()}
+                          </td>
+                          <td className="p-3.5 text-right">
+                            <button
+                              onClick={() =>
+                                setSelectedCustomerPhone(
+                                  selectedCustomerPhone === cust.phone ? null : cust.phone
+                                )
+                              }
+                              className="px-3 py-1 rounded-lg bg-stone-900 hover:bg-stone-800 text-white text-[11px] font-bold cursor-pointer"
+                            >
+                              {selectedCustomerPhone === cust.phone ? 'Hide Profile' : 'View Profile'}
+                            </button>
+                          </td>
+                        </tr>
+                        {selectedCustomerPhone === cust.phone && (
+                          <tr className="bg-amber-50/40">
+                            <td colSpan={6} className="p-4">
+                              <div className="bg-white rounded-2xl border border-amber-200 p-4 space-y-2 text-xs">
+                                <div className="flex items-center justify-between border-b border-stone-100 pb-2">
+                                  <div className="font-black text-stone-900">
+                                    Customer Profile Dossier: {cust.name} ({cust.phone})
+                                  </div>
+                                  <span className="text-[11px] font-bold text-emerald-700">
+                                    Lifetime Value: ₦{cust.totalSpent.toLocaleString()}
+                                  </span>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-[11px] text-stone-600">
+                                  <div>
+                                    <strong className="text-stone-900 block">Delivery Address:</strong>
+                                    {cust.address}
+                                  </div>
+                                  <div>
+                                    <strong className="text-stone-900 block">Contact Email:</strong>
+                                    {cust.email}
+                                  </div>
+                                  <div>
+                                    <strong className="text-stone-900 block">Service Summary:</strong>
+                                    {cust.ordersCount} Retail Orders • {cust.tailoringCount} Tailoring • {cust.cateringCount} Events • {cust.ridesCount} Rides • {cust.vtuCount} VTU
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -1615,6 +2065,127 @@ export const AdminDashboard: React.FC = () => {
                 </tbody>
               </table>
             </div>
+          </div>
+
+          {/* Server-Side Paystack Payment State Machine & Webhook Event Ledger */}
+          <div className="bg-white rounded-3xl border border-stone-200 overflow-hidden shadow-xs">
+            <div className="p-5 border-b border-stone-200 flex flex-wrap justify-between items-center gap-3 bg-stone-50">
+              <div>
+                <h4 className="font-bold text-sm text-stone-900 flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-amber-600" />
+                  Server-Side Paystack Payment State Machine Ledger ({paymentRecords.length})
+                </h4>
+                <p className="text-[11px] text-stone-500">
+                  Authoritative server-verified transactions (`INITIATED` → `PENDING` → `SUCCESS` / `FAILED` / `ABANDONED` / `REFUNDED`).
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => refreshSystemData()}
+                className="px-3 py-1.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-white text-xs font-bold cursor-pointer flex items-center gap-1.5"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                <span>Refresh Gateway Ledger</span>
+              </button>
+            </div>
+
+            {paymentRecords.length === 0 ? (
+              <div className="p-8 text-center text-xs text-stone-500">
+                No server-side Paystack transactions initialized yet in this session. Place an online order or VTU purchase to see live state transitions.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-stone-100 text-stone-700 font-bold border-b border-stone-200">
+                    <tr>
+                      <th className="p-3.5">Gateway Reference</th>
+                      <th className="p-3.5">Entity</th>
+                      <th className="p-3.5">Amount (NGN / Kobo)</th>
+                      <th className="p-3.5">Mode & Channel</th>
+                      <th className="p-3.5">Lifecycle State</th>
+                      <th className="p-3.5">Admin Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100">
+                    {paymentRecords.map((pay) => (
+                      <tr key={pay.id} className="hover:bg-stone-50/50">
+                        <td className="p-3.5">
+                          <div className="font-mono font-bold text-stone-900">{pay.reference}</div>
+                          <div className="text-[10px] text-stone-400">
+                            {new Date(pay.updatedAt).toLocaleString()}
+                          </div>
+                        </td>
+                        <td className="p-3.5">
+                          <span className="px-2 py-0.5 rounded bg-stone-200 text-stone-800 font-bold text-[10px]">
+                            {pay.entityType}
+                          </span>
+                          <div className="font-mono text-[11px] text-stone-600 mt-0.5">{pay.entityId}</div>
+                        </td>
+                        <td className="p-3.5">
+                          <div className="font-black text-stone-900 tabular-nums">
+                            ₦{pay.amountNaira.toLocaleString()}
+                          </div>
+                          <div className="font-mono text-[10px] text-stone-400">
+                            {pay.amountKobo.toLocaleString()} kobo ({pay.currency})
+                          </div>
+                        </td>
+                        <td className="p-3.5">
+                          <span className="font-bold text-stone-800">{pay.mode}</span>
+                          <div className="text-[10px] text-stone-500">{pay.channel}</div>
+                        </td>
+                        <td className="p-3.5">
+                          <span
+                            className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                              pay.status === 'SUCCESS'
+                                ? 'bg-emerald-100 text-emerald-900'
+                                : pay.status === 'REFUNDED'
+                                ? 'bg-purple-100 text-purple-900'
+                                : pay.status === 'FAILED' || pay.status === 'ABANDONED'
+                                ? 'bg-rose-100 text-rose-900'
+                                : 'bg-amber-100 text-amber-900'
+                            }`}
+                          >
+                            {pay.status}
+                          </span>
+                          {pay.verifiedBy && (
+                            <div className="text-[10px] text-stone-400 mt-0.5">
+                              By: {pay.verifiedBy}
+                            </div>
+                          )}
+                        </td>
+                        <td className="p-3.5">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {pay.status !== 'SUCCESS' && pay.status !== 'REFUNDED' && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  verifyOrderPayment({
+                                    reference: pay.reference,
+                                    simulatedOutcome: 'SUCCESS'
+                                  })
+                                }
+                                className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] cursor-pointer"
+                              >
+                                Verify Success
+                              </button>
+                            )}
+                            {pay.status === 'SUCCESS' && (
+                              <button
+                                type="button"
+                                onClick={() => refundPaymentRecord(pay.reference, 'Admin Refund')}
+                                className="px-2.5 py-1 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-800 font-bold text-[11px] cursor-pointer"
+                              >
+                                Issue Refund
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1832,6 +2403,100 @@ export const AdminDashboard: React.FC = () => {
                 <RotateCcw className="w-4 h-4" />
                 <span>Reset to Factory Defaults</span>
               </button>
+            </div>
+          </div>
+
+          {/* Production Architecture Status & Relational Database Diagnostics */}
+          {systemStatus && (
+            <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-xs space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-100 pb-3">
+                <div>
+                  <h3 className="font-extrabold text-base text-stone-900 font-display flex items-center gap-2">
+                    <Layers className="w-4 h-4 text-emerald-600" />
+                    Production Backend, Relational Database & Gateway Architecture Status
+                  </h3>
+                  <p className="text-xs text-stone-500">
+                    Real-time health diagnostics from `/api/system/status` (Database Abstraction, Paystack HMAC Webhook & VTU Provider).
+                  </p>
+                </div>
+                <span className="px-3 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-900">
+                  Mode: {systemStatus.operationalMode} ({systemStatus.database.mode})
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                <div className="p-3.5 rounded-2xl bg-stone-50 border border-stone-200">
+                  <div className="font-bold text-stone-500">Database Engine</div>
+                  <div className="font-black text-stone-900 mt-0.5">{systemStatus.database.engine}</div>
+                  <div className="text-[11px] text-emerald-700 font-semibold mt-1">
+                    ✓ {Object.keys(systemStatus.database.entitiesCount).length} Relational Tables Active
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-stone-50 border border-stone-200">
+                  <div className="font-bold text-stone-500">Paystack Gateway</div>
+                  <div className="font-black text-stone-900 mt-0.5">{systemStatus.paystack.mode}</div>
+                  <div className="text-[11px] text-stone-600 font-mono mt-1">
+                    Webhook: {systemStatus.paystack.webhookEndpoint}
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-stone-50 border border-stone-200">
+                  <div className="font-bold text-stone-500">VTU Telecom Provider</div>
+                  <div className="font-black text-stone-900 mt-0.5">{systemStatus.vtu.providerName}</div>
+                  <div className="text-[11px] text-purple-700 font-semibold mt-1">
+                    Mode: {systemStatus.vtu.mode}
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-stone-50 border border-stone-200">
+                  <div className="font-bold text-stone-500">Security & RBAC Controls</div>
+                  <div className="font-black text-emerald-800 mt-0.5">
+                    JWT + HMAC-SHA512 Active
+                  </div>
+                  <div className="text-[11px] text-stone-600 mt-1">
+                    Rate Limiting & Audit Ledger Enabled
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Immutable Administrative & Security Audit Logs Ledger */}
+          <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-xs space-y-4">
+            <div className="flex items-center justify-between border-b border-stone-100 pb-3">
+              <div>
+                <h3 className="font-extrabold text-base text-stone-900 font-display flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-amber-600" />
+                  Immutable Administrative & Security Audit Logs ({auditLogs.length})
+                </h3>
+                <p className="text-xs text-stone-500">
+                  Tracks admin logins, price/stock adjustments, order status changes, Paystack verifications, and VTU actions.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => refreshSystemData()}
+                className="px-3 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-bold cursor-pointer"
+              >
+                Refresh Logs
+              </button>
+            </div>
+
+            <div className="max-h-72 overflow-y-auto divide-y divide-stone-100 text-xs">
+              {auditLogs.slice(0, 25).map((log) => (
+                <div key={log.id} className="py-2.5 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <span className="px-2 py-0.5 rounded bg-stone-900 text-amber-300 font-mono text-[10px] font-bold mr-2">
+                      {log.action}
+                    </span>
+                    <span className="font-semibold text-stone-800">{log.summary}</span>
+                  </div>
+                  <div className="text-[11px] text-stone-400 font-mono">
+                    {log.actorName} ({log.actorRole}) • {new Date(log.createdAt).toLocaleTimeString()}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>

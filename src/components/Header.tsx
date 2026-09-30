@@ -21,7 +21,9 @@ import {
   X,
   Lock,
   LogOut,
-  Smartphone
+  Smartphone,
+  Bell,
+  Package
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -41,12 +43,23 @@ export const Header: React.FC<{ onOpenContactModal?: () => void }> = () => {
     searchQuery,
     setSearchQuery,
     businessInfo,
-    announcement
+    announcement,
+    openCustomerAccount,
+    orders,
+    tailoringRequests,
+    vtuTransactions,
+    userProfile,
+    notifications,
+    markAllNotificationsRead,
+    clearNotifications
   } = useApp();
 
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
+  const [notificationsOpen, setNotificationsOpen] = React.useState(false);
 
   const totalCartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
+  const unreadNotifCount = notifications.filter(n => !n.read).length;
+  const notificationCount = unreadNotifCount + (activeRide ? 1 : 0);
 
   const navItems: { id: Division; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
     { id: 'ALL', label: 'All Services Hub', icon: Grid },
@@ -129,14 +142,14 @@ export const Header: React.FC<{ onOpenContactModal?: () => void }> = () => {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search fashion, bakery, grocery, catering packages..."
-                className="w-full bg-stone-800/90 text-stone-100 placeholder-stone-400 text-xs rounded-full pl-9 pr-4 py-2 border border-stone-700 focus:outline-hidden focus:border-amber-400 transition-colors"
+                placeholder="Search Ankara, Senator, Bread, Wedding Cake, Yam, Airtime, Keke Ride..."
+                className="w-full bg-stone-800/90 text-stone-100 placeholder-stone-400 text-xs rounded-full pl-9 pr-8 py-2 border border-stone-700 focus:outline-hidden focus:border-amber-400 transition-colors"
               />
               <Search className="w-4 h-4 text-stone-400 absolute left-3 top-2.5" />
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-2.5 text-xs text-stone-400 hover:text-white"
+                  className="absolute right-3 top-2.5 text-xs text-stone-400 hover:text-white cursor-pointer"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -145,12 +158,12 @@ export const Header: React.FC<{ onOpenContactModal?: () => void }> = () => {
           </div>
 
           {/* Right Action Bar */}
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-2 sm:gap-2.5">
             {/* Active Ride indicator if trip is ongoing */}
             {activeRide && (
               <button
                 onClick={() => setActiveDivision('TRANSPORT')}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/40 text-xs font-semibold animate-pulse hover:bg-blue-500/30"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/40 text-xs font-semibold animate-pulse hover:bg-blue-500/30 cursor-pointer"
               >
                 <Car className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Active Trip:</span>
@@ -158,10 +171,135 @@ export const Header: React.FC<{ onOpenContactModal?: () => void }> = () => {
               </button>
             )}
 
+            {/* Notifications Bell */}
+            <div className="relative">
+              <button
+                onClick={() => setNotificationsOpen(!notificationsOpen)}
+                className="relative p-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 border border-stone-700 transition-colors cursor-pointer"
+                aria-label="Notifications"
+                title="View Notifications & Order Alerts"
+              >
+                <Bell className="w-4 h-4 text-amber-400" />
+                {notificationCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white font-black text-[10px] flex items-center justify-center">
+                    {notificationCount}
+                  </span>
+                )}
+              </button>
+
+              {notificationsOpen && (
+                <div className="absolute right-0 mt-2 w-80 bg-stone-900 border border-stone-700 rounded-2xl shadow-2xl p-3 space-y-2.5 z-50 text-xs">
+                  <div className="flex items-center justify-between border-b border-stone-800 pb-2">
+                    <span className="font-bold text-amber-200">Notifications & Alerts ({notifications.length})</span>
+                    <div className="flex items-center gap-2">
+                      {unreadNotifCount > 0 && (
+                        <button
+                          onClick={markAllNotificationsRead}
+                          className="text-[10px] font-bold text-emerald-400 hover:underline cursor-pointer"
+                        >
+                          Mark Read
+                        </button>
+                      )}
+                      {notifications.length > 0 && (
+                        <button
+                          onClick={clearNotifications}
+                          className="text-[10px] font-bold text-stone-400 hover:text-rose-400 cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setNotificationsOpen(false)}
+                        className="text-stone-400 hover:text-white cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {activeRide && (
+                      <div
+                        onClick={() => {
+                          setNotificationsOpen(false);
+                          setActiveDivision('TRANSPORT');
+                        }}
+                        className="p-2.5 rounded-xl bg-blue-950/60 border border-blue-800/60 cursor-pointer hover:bg-blue-900/50"
+                      >
+                        <div className="font-bold text-blue-300">Active Kogi Ride ({activeRide.vehicleType})</div>
+                        <div className="text-[11px] text-stone-300">
+                          Driver {activeRide.driver?.name} en route to {activeRide.destinationLocation.name}.
+                        </div>
+                      </div>
+                    )}
+
+                    {notifications.length === 0 && !activeRide ? (
+                      <div className="py-6 text-center text-stone-400 text-[11px]">
+                        No new notifications right now.
+                      </div>
+                    ) : (
+                      notifications.slice(0, 6).map((notif) => (
+                        <div
+                          key={notif.id}
+                          onClick={() => {
+                            markAllNotificationsRead();
+                            setNotificationsOpen(false);
+                            if (notif.category === 'TAILORING') openCustomerAccount('TAILORING');
+                            else if (notif.category === 'CAKE' || notif.category === 'CATERING') openCustomerAccount('CAKES_CATERING');
+                            else if (notif.category === 'RIDE') openCustomerAccount('RIDES');
+                            else if (notif.category === 'VTU') openCustomerAccount('VTU');
+                            else openCustomerAccount('ORDERS');
+                          }}
+                          className={`p-2.5 rounded-xl border cursor-pointer transition-colors ${
+                            notif.read
+                              ? 'bg-stone-800/60 border-stone-700/70 hover:border-stone-600'
+                              : 'bg-stone-800 border-amber-500/50 hover:border-amber-400'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="font-bold text-amber-300">{notif.title}</span>
+                            {!notif.read && (
+                              <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+                            )}
+                          </div>
+                          <div className="text-[11px] text-stone-300 mt-0.5 leading-snug">
+                            {notif.message}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      markAllNotificationsRead();
+                      setNotificationsOpen(false);
+                      openCustomerAccount('OVERVIEW');
+                    }}
+                    className="w-full py-2 rounded-xl bg-amber-500 text-stone-950 font-bold text-center cursor-pointer"
+                  >
+                    Open Full Activity & Order Tracker
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Customer Account / Orders Button */}
+            <button
+              onClick={() => openCustomerAccount('OVERVIEW')}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-100 border border-stone-700 transition-colors cursor-pointer"
+              title="Customer Account, Order Tracking & Receipts"
+            >
+              <User className="w-4 h-4 text-amber-400" />
+              <span className="hidden xl:inline text-xs font-semibold">
+                {userProfile.name.split(' ')[0] || 'Account'}
+              </span>
+            </button>
+
             {/* Cart Button */}
             <button
               onClick={() => setIsCartOpen(true)}
-              className="relative flex items-center gap-2 px-3 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-100 border border-stone-700 transition-colors"
+              className="relative flex items-center gap-2 px-3 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-100 border border-stone-700 transition-colors cursor-pointer"
               aria-label="View Shopping Cart"
             >
               <ShoppingCart className="w-4 h-4 text-amber-400" />

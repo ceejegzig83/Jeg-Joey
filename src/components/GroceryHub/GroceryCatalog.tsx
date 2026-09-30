@@ -25,6 +25,14 @@ export const GroceryCatalog: React.FC = () => {
 
   const categories = [
     'ALL',
+    'Rice',
+    'Yam',
+    'Beans',
+    'Palm Oil',
+    'Vegetable Oil',
+    'Vegetables',
+    'Drinks',
+    'Household Items',
     'Tubers & Roots',
     'Oils & Spices',
     'Grains & Rice',
@@ -35,7 +43,18 @@ export const GroceryCatalog: React.FC = () => {
   ];
 
   const filteredProducts = groceryProducts.filter(product => {
-    const matchesCategory = selectedCategory === 'ALL' || product.category === selectedCategory;
+    const text = `${product.name} ${product.description} ${product.category}`.toLowerCase();
+    const matchesCategory =
+      selectedCategory === 'ALL' ||
+      product.category === selectedCategory ||
+      (selectedCategory === 'Rice' && text.includes('rice')) ||
+      (selectedCategory === 'Yam' && text.includes('yam')) ||
+      (selectedCategory === 'Beans' && text.includes('beans')) ||
+      (selectedCategory === 'Palm Oil' && text.includes('palm oil')) ||
+      (selectedCategory === 'Vegetable Oil' && (text.includes('vegetable oil') || text.includes('groundnut'))) ||
+      (selectedCategory === 'Vegetables' && (product.category === 'Vegetables' || text.includes('vegetable') || text.includes('tomato'))) ||
+      (selectedCategory === 'Drinks' && (product.category === 'Drinks' || text.includes('drink') || text.includes('malt') || text.includes('juice'))) ||
+      (selectedCategory === 'Household Items' && (product.category === 'Supermarket Essentials' || text.includes('detergent') || text.includes('household')));
     const matchesSearch = searchQuery === '' ||
       product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       product.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -120,98 +139,121 @@ export const GroceryCatalog: React.FC = () => {
       </div>
 
       {/* Grocery Products Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-        {filteredProducts.map(product => {
-          const qtyInCart = getItemQuantityInCart(product.id);
-          const cartItem = cart.find(i => i.productId === product.id);
+      {filteredProducts.length === 0 ? (
+        <div className="text-center py-16 bg-white rounded-2xl border border-stone-200 p-8 space-y-3">
+          <ShoppingBag className="w-10 h-10 text-stone-400 mx-auto" />
+          <h4 className="text-base font-bold text-stone-800">No grocery items match your filter</h4>
+          <p className="text-xs text-stone-500">Try selecting another department or clear your search query.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+          {filteredProducts.map(product => {
+            const qtyInCart = getItemQuantityInCart(product.id);
+            const cartItem = cart.find(i => i.productId === product.id);
+            const isOutOfStock = !product.inStock || (typeof product.stockCount === 'number' && product.stockCount <= 0);
 
-          return (
-            <motion.div
-              key={product.id}
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-xs hover:shadow-md transition-all flex flex-col justify-between group"
-            >
-              {/* Image: Standardized 1:1 Square Aspect Ratio with centerCrop */}
-              <div className="relative aspect-square w-full bg-stone-100 overflow-hidden">
-                <img
-                  src={product.image}
-                  alt={product.name}
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300"
-                />
-                {product.badge && (
-                  <span className="absolute top-2.5 left-2.5 text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-800 text-emerald-100 shadow-xs">
-                    {product.badge}
+            return (
+              <motion.div
+                key={product.id}
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-xs hover:shadow-md transition-all flex flex-col justify-between group"
+              >
+                {/* Image: Standardized 1:1 Square Aspect Ratio with centerCrop */}
+                <div className="relative aspect-square w-full bg-stone-100 overflow-hidden">
+                  <img
+                    src={product.image}
+                    alt={product.name}
+                    referrerPolicy="no-referrer"
+                    className={`w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300 ${
+                      isOutOfStock ? 'opacity-60 grayscale-[35%]' : ''
+                    }`}
+                  />
+                  {product.badge && (
+                    <span className="absolute top-2.5 left-2.5 text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-800 text-emerald-100 shadow-xs">
+                      {product.badge}
+                    </span>
+                  )}
+                  <span
+                    className={`absolute top-2.5 right-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full shadow-xs ${
+                      isOutOfStock ? 'bg-rose-600 text-white' : 'bg-emerald-600/95 text-white'
+                    }`}
+                  >
+                    {isOutOfStock ? 'Out of Stock' : `In Stock (${product.stockCount ?? 25})`}
                   </span>
-                )}
-                {product.unit && (
-                  <span className="absolute bottom-2.5 right-2.5 text-[11px] font-semibold px-2 py-0.5 rounded bg-stone-950/80 text-white backdrop-blur-xs">
-                    {product.unit}
-                  </span>
-                )}
-              </div>
-
-              {/* Body */}
-              <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
-                <div className="space-y-1.5">
-                  <div className="text-[10px] uppercase font-bold text-stone-400">
-                    {product.category}
-                  </div>
-                  <h3 className="font-bold text-sm text-stone-900 group-hover:text-emerald-800 transition-colors line-clamp-2">
-                    {product.name}
-                  </h3>
-                  <p className="text-xs text-stone-500 line-clamp-2 leading-relaxed">
-                    {product.description}
-                  </p>
-                </div>
-
-                {/* Price & Quantity Adder */}
-                <div className="pt-3 border-t border-stone-100 flex items-center justify-between gap-2">
-                  <div>
-                    <div className="text-base font-extrabold text-stone-900">
-                      ₦{product.price.toLocaleString()}
-                    </div>
-                    {product.originalPrice && (
-                      <div className="text-[11px] text-stone-400 line-through">
-                        ₦{product.originalPrice.toLocaleString()}
-                      </div>
-                    )}
-                  </div>
-
-                  {qtyInCart > 0 && cartItem ? (
-                    <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-xl p-1">
-                      <button
-                        onClick={() => updateCartQuantity(cartItem.id, qtyInCart - 1)}
-                        className="w-6 h-6 rounded-lg bg-white border border-stone-200 text-stone-700 flex items-center justify-center text-xs font-bold hover:bg-stone-100"
-                      >
-                        <Minus className="w-3 h-3" />
-                      </button>
-                      <span className="text-xs font-bold text-emerald-950 w-5 text-center">
-                        {qtyInCart}
-                      </span>
-                      <button
-                        onClick={() => updateCartQuantity(cartItem.id, qtyInCart + 1)}
-                        className="w-6 h-6 rounded-lg bg-emerald-600 text-white flex items-center justify-center text-xs font-bold hover:bg-emerald-700"
-                      >
-                        <Plus className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => addToCart(product, 1)}
-                      className="flex items-center gap-1 px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition-all shadow-xs"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Add</span>
-                    </button>
+                  {product.unit && (
+                    <span className="absolute bottom-2.5 right-2.5 text-[11px] font-semibold px-2 py-0.5 rounded bg-stone-950/80 text-white backdrop-blur-xs">
+                      {product.unit}
+                    </span>
                   )}
                 </div>
-              </div>
-            </motion.div>
-          );
-        })}
-      </div>
+
+                {/* Body */}
+                <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
+                  <div className="space-y-1.5">
+                    <div className="text-[10px] uppercase font-bold text-stone-400">
+                      {product.category}
+                    </div>
+                    <h3 className="font-bold text-sm text-stone-900 group-hover:text-emerald-800 transition-colors line-clamp-2">
+                      {product.name}
+                    </h3>
+                    <p className="text-xs text-stone-500 line-clamp-2 leading-relaxed">
+                      {product.description}
+                    </p>
+                  </div>
+
+                  {/* Price & Quantity Adder */}
+                  <div className="pt-3 border-t border-stone-100 flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-base font-extrabold text-stone-900">
+                        ₦{product.price.toLocaleString()}
+                      </div>
+                      {product.originalPrice && (
+                        <div className="text-[11px] text-stone-400 line-through">
+                          ₦{product.originalPrice.toLocaleString()}
+                        </div>
+                      )}
+                    </div>
+
+                    {qtyInCart > 0 && cartItem ? (
+                      <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-xl p-1">
+                        <button
+                          onClick={() => updateCartQuantity(cartItem.id, qtyInCart - 1)}
+                          className="w-6 h-6 rounded-lg bg-white border border-stone-200 text-stone-700 flex items-center justify-center text-xs font-bold hover:bg-stone-100"
+                        >
+                          <Minus className="w-3 h-3" />
+                        </button>
+                        <span className="text-xs font-bold text-emerald-950 w-5 text-center">
+                          {qtyInCart}
+                        </span>
+                        <button
+                          onClick={() => updateCartQuantity(cartItem.id, qtyInCart + 1)}
+                          className="w-6 h-6 rounded-lg bg-emerald-600 text-white flex items-center justify-center text-xs font-bold hover:bg-emerald-700"
+                        >
+                          <Plus className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => !isOutOfStock && addToCart(product, 1)}
+                        disabled={isOutOfStock}
+                        className={`flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-bold transition-all shadow-xs ${
+                          isOutOfStock
+                            ? 'bg-stone-200 text-stone-400 cursor-not-allowed'
+                            : 'bg-emerald-700 hover:bg-emerald-800 text-white cursor-pointer'
+                        }`}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>{isOutOfStock ? 'Out of Stock' : 'Add'}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };

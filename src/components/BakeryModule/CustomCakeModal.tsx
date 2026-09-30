@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { BUSINESS_INFO } from '../../data/mockData';
+import { validateNigerianPhone } from '../../utils/nigerianPhone';
 import { 
   Cake, 
   X, 
@@ -46,15 +47,16 @@ export const CustomCakeModal: React.FC<CustomCakeModalProps> = ({ isOpen, onClos
   const [recipientPhone, setRecipientPhone] = useState(userProfile.phone || '');
   const [specialInstructions, setSpecialInstructions] = useState('');
 
+  const [isReviewStep, setIsReviewStep] = useState(false);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
   // Dynamic Price calculation
   const calculatePrice = () => {
     let base = 18000;
     if (cakeSize.includes('10-inch')) base = 25000;
-    else if (cakeSize.includes('2-Tier')) base = 42000;
-    else if (cakeSize.includes('3-Tier')) base = 68000;
-    else if (cakeSize.includes('4-Tier')) base = 110000;
+    else if (cakeSize.includes('2-Tier') || layers === 2) base = 42000;
+    else if (cakeSize.includes('3-Tier') || layers === 3) base = 68000;
+    else if (cakeSize.includes('4-Tier') || layers === 4) base = 110000;
 
     if (designStyle.includes('Fondant') || designStyle.includes('Gold Drip')) base += 5000;
     return base;
@@ -62,35 +64,49 @@ export const CustomCakeModal: React.FC<CustomCakeModalProps> = ({ isOpen, onClos
 
   const estimatedPrice = calculatePrice();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleProceedToReview = (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (!recipientName || !recipientPhone || !deliveryAddress) {
+    if (!recipientName.trim() || !recipientPhone.trim() || !deliveryAddress.trim()) {
       showToast('Please fill in recipient name, phone, and delivery address', 'error');
       return;
     }
+    const phoneCheck = validateNigerianPhone(recipientPhone);
+    if (!phoneCheck.isValid) {
+      showToast(phoneCheck.error || 'Please enter a valid 11-digit Nigerian phone number', 'error', 'Invalid Phone');
+      return;
+    }
+    const todayStr = new Date().toISOString().split('T')[0];
+    if (!deliveryDate || deliveryDate < todayStr) {
+      showToast('Event / delivery date cannot be in the past.', 'error', 'Invalid Event Date');
+      return;
+    }
+    setIsReviewStep(true);
+  };
 
+  const handleConfirmAndPay = () => {
+    const phoneCheck = validateNigerianPhone(recipientPhone);
     setIsProcessingPayment(true);
 
     setTimeout(() => {
       setIsProcessingPayment(false);
+      setIsReviewStep(false);
 
       createCakeOrder({
-        customerName: recipientName,
-        customerPhone: recipientPhone,
+        customerName: recipientName.trim(),
+        customerPhone: phoneCheck.isValid ? phoneCheck.normalized : recipientPhone.trim(),
         cakeType,
         cakeSize,
         flavor,
         layers,
         designStyle,
         colorTheme,
-        inscription,
+        inscription: inscription.trim() || 'Celebration Cake',
         referenceImage: referenceImageUrl || 'https://images.unsplash.com/photo-1586985289688-ca3cf47d3e6e?auto=format&fit=crop&w=600&q=80',
         deliveryDate,
         deliveryTimeSlot,
-        deliveryAddress,
-        recipientName,
-        recipientPhone,
+        deliveryAddress: deliveryAddress.trim(),
+        recipientName: recipientName.trim(),
+        recipientPhone: phoneCheck.isValid ? phoneCheck.normalized : recipientPhone.trim(),
         specialInstructions,
         estimatedPrice,
       });
@@ -134,8 +150,98 @@ export const CustomCakeModal: React.FC<CustomCakeModalProps> = ({ isOpen, onClos
             </div>
           </div>
 
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
+          {/* Form or Review Step */}
+          {isReviewStep ? (
+            <div className="p-6 space-y-5 max-h-[80vh] overflow-y-auto">
+              <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 space-y-1">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800">
+                  Review Custom Cake Order Before Submitting
+                </span>
+                <p className="text-xs text-stone-600">
+                  Please verify your cake specifications, message inscription, and Kogi State delivery details below.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs bg-stone-50 p-4 rounded-2xl border border-stone-200">
+                <div>
+                  <span className="text-stone-400 block">Cake Type:</span>
+                  <strong className="text-stone-900">{cakeType}</strong>
+                </div>
+                <div>
+                  <span className="text-stone-400 block">Size & Number of Tiers:</span>
+                  <strong className="text-stone-900">{cakeSize} ({layers} Tier{layers > 1 ? 's' : ''})</strong>
+                </div>
+                <div>
+                  <span className="text-stone-400 block">Flavor:</span>
+                  <strong className="text-stone-900">{flavor}</strong>
+                </div>
+                <div>
+                  <span className="text-stone-400 block">Design & Color Theme:</span>
+                  <strong className="text-stone-900">{designStyle} ({colorTheme})</strong>
+                </div>
+                <div className="sm:col-span-2">
+                  <span className="text-stone-400 block">Message on Cake:</span>
+                  <strong className="text-amber-800 text-sm">&ldquo;{inscription}&rdquo;</strong>
+                </div>
+                <div>
+                  <span className="text-stone-400 block">Event / Delivery Date:</span>
+                  <strong className="text-stone-900">{deliveryDate} ({deliveryTimeSlot})</strong>
+                </div>
+                <div>
+                  <span className="text-stone-400 block">Recipient & Phone:</span>
+                  <strong className="text-stone-900">{recipientName} ({recipientPhone})</strong>
+                </div>
+                <div className="sm:col-span-2">
+                  <span className="text-stone-400 block">Delivery Location:</span>
+                  <strong className="text-stone-900">{deliveryAddress}</strong>
+                </div>
+                {specialInstructions && (
+                  <div className="sm:col-span-2">
+                    <span className="text-stone-400 block">Special Instructions:</span>
+                    <strong className="text-stone-800">{specialInstructions}</strong>
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-stone-900 text-white rounded-2xl p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-xs text-stone-400">Estimated Total Price</div>
+                    <div className="text-2xl font-black text-amber-300 tabular-nums">
+                      ₦{estimatedPrice.toLocaleString()}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsReviewStep(false)}
+                    className="px-3.5 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-bold cursor-pointer"
+                  >
+                    ← Edit Details
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleConfirmAndPay}
+                  disabled={isProcessingPayment}
+                  className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-extrabold text-sm transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                >
+                  {isProcessingPayment ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-stone-950 border-t-transparent rounded-full animate-spin" />
+                      <span>Confirming Bakery Schedule & Payment...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Submit & Pay ₦{estimatedPrice.toLocaleString()}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          ) : (
+          <form onSubmit={handleProceedToReview} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
             {/* Cake Flavor & Structure */}
             <div className="space-y-4">
               <h4 className="text-xs font-bold uppercase tracking-wider text-stone-500 flex items-center gap-1.5">
@@ -295,14 +401,25 @@ export const CustomCakeModal: React.FC<CustomCakeModalProps> = ({ isOpen, onClos
                   />
                 </div>
               </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-stone-700 mb-1">Special Instructions (Allergies, Design Notes, Delivery Landmark)</label>
+                <textarea
+                  value={specialInstructions}
+                  onChange={(e) => setSpecialInstructions(e.target.value)}
+                  rows={2}
+                  placeholder="Any special dietary notes, topper instructions, or event timing requirements..."
+                  className="w-full bg-stone-50 border border-stone-300 rounded-xl px-3 py-2 text-xs"
+                />
+              </div>
             </div>
 
-            {/* Total Price & Checkout */}
+            {/* Total Price & Proceed to Review */}
             <div className="bg-stone-900 text-white rounded-2xl p-5 space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-xs text-stone-400">Total Custom Cake Order</div>
-                  <div className="text-2xl font-black text-amber-300">
+                  <div className="text-xs text-stone-400">Estimated Custom Cake Price</div>
+                  <div className="text-2xl font-black text-amber-300 tabular-nums">
                     ₦{estimatedPrice.toLocaleString()}
                   </div>
                 </div>
@@ -315,23 +432,14 @@ export const CustomCakeModal: React.FC<CustomCakeModalProps> = ({ isOpen, onClos
 
               <button
                 type="submit"
-                disabled={isProcessingPayment}
-                className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-extrabold text-sm transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-extrabold text-sm transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
               >
-                {isProcessingPayment ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-stone-950 border-t-transparent rounded-full animate-spin" />
-                    <span>Confirming Bakery Schedule & Payment...</span>
-                  </>
-                ) : (
-                  <>
-                    <Cake className="w-4 h-4" />
-                    <span>Pay ₦{estimatedPrice.toLocaleString()} & Schedule Delivery</span>
-                  </>
-                )}
+                <Cake className="w-4 h-4" />
+                <span>Review Cake Request (₦{estimatedPrice.toLocaleString()}) →</span>
               </button>
             </div>
           </form>
+          )}
         </motion.div>
       </div>
     </AnimatePresence>

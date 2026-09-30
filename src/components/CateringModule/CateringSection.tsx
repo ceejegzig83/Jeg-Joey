@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { CATERING_PACKAGES, BUSINESS_INFO, CATERING_SAMPLE_DISHES } from '../../data/mockData';
 import { CateringPackage, CateringBooking } from '../../types';
+import { validateNigerianPhone } from '../../utils/nigerianPhone';
 import { 
   UtensilsCrossed, 
   Users, 
@@ -21,7 +22,7 @@ import {
 import { motion } from 'motion/react';
 
 export const CateringSection: React.FC = () => {
-  const { userProfile, createCateringBooking, showToast, cateringBookings, cateringPackages, cateringDishes } = useApp();
+  const { userProfile, createCateringBooking, showToast, cateringBookings, cateringPackages, cateringDishes, setActiveInvoice } = useApp();
 
   // Selected package state
   const [selectedPackageId, setSelectedPackageId] = useState<string>('cat-standard');
@@ -62,8 +63,25 @@ export const CateringSection: React.FC = () => {
   const handleBookingSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!customerName || !customerPhone || !eventLocation) {
+    if (!customerName.trim() || !customerPhone.trim() || !eventLocation.trim()) {
       showToast('Please provide your name, phone, and event location in Kogi State', 'error');
+      return;
+    }
+
+    const phoneCheck = validateNigerianPhone(customerPhone);
+    if (!phoneCheck.isValid) {
+      showToast(phoneCheck.error || 'Please enter a valid 11-digit Nigerian phone number', 'error', 'Invalid Phone');
+      return;
+    }
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    if (!eventDate || eventDate < todayStr) {
+      showToast('Event date cannot be in the past.', 'error', 'Invalid Event Date');
+      return;
+    }
+
+    if (!guestCount || guestCount < 10) {
+      showToast('Expected guest count must be at least 10 guests.', 'error', 'Invalid Guest Count');
       return;
     }
 
@@ -73,13 +91,13 @@ export const CateringSection: React.FC = () => {
       setIsProcessing(false);
 
       createCateringBooking({
-        customerName,
-        customerPhone,
-        customerEmail,
+        customerName: customerName.trim(),
+        customerPhone: phoneCheck.normalized,
+        customerEmail: customerEmail.trim(),
         eventType,
         eventDate,
         eventTime,
-        eventLocation,
+        eventLocation: eventLocation.trim(),
         expectedGuests: guestCount,
         selectedPackageId: selectedPkg.id,
         customMenuPreferences: selectedPkg.menuItems,
@@ -331,8 +349,12 @@ export const CateringSection: React.FC = () => {
               >
                 <option>Wedding</option>
                 <option>Birthday</option>
-                <option>Burial / Celebration of Life</option>
+                <option>Church Event</option>
                 <option>Corporate Event / Banquet</option>
+                <option>Large Event / Festival</option>
+                <option>Naming Ceremony</option>
+                <option>Graduation</option>
+                <option>Burial / Celebration of Life</option>
                 <option>Political Gathering / Summit</option>
                 <option>Traditional Celebration</option>
                 <option>Religious Event</option>
@@ -503,6 +525,60 @@ export const CateringSection: React.FC = () => {
           </div>
         </form>
       </div>
+
+      {/* Confirmed Event Catering Reservations & Quotes */}
+      {cateringBookings.length > 0 && (
+        <div className="bg-white rounded-3xl border border-stone-200 p-6 sm:p-8 space-y-4 shadow-xs">
+          <div className="border-b border-stone-100 pb-3">
+            <h3 className="text-lg font-extrabold text-stone-900 font-display">
+              Reserved Event Catering Bookings ({cateringBookings.length})
+            </h3>
+            <p className="text-xs text-stone-500">
+              Your scheduled event banquets, deposit confirmations, and official invoices.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {cateringBookings.map((booking) => (
+              <div
+                key={booking.id}
+                className="p-4 rounded-2xl border border-stone-200 bg-rose-50/40 flex flex-col justify-between gap-3"
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-rose-800">
+                      {booking.eventType} ({booking.expectedGuests} Guests) • Ref: {booking.bookingReference || booking.id.toUpperCase()}
+                    </span>
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
+                      {booking.status.replace(/_/g, ' ')}
+                    </span>
+                  </div>
+                  <h4 className="font-bold text-sm text-stone-900">{booking.eventLocation}</h4>
+                  <p className="text-xs text-stone-600">
+                    Date: {booking.eventDate} at {booking.eventTime} • Style: {booking.serviceStyle}
+                  </p>
+                </div>
+
+                <div className="pt-2 border-t border-stone-200 flex items-center justify-between text-xs">
+                  <div>
+                    <span className="text-stone-500 block text-[11px]">Total Quote (50% Deposit Paid):</span>
+                    <strong className="font-black text-sm text-stone-900 tabular-nums">
+                      ₦{booking.totalQuote.toLocaleString()}
+                    </strong>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveInvoice(booking)}
+                    className="px-3 py-1.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-white font-bold cursor-pointer"
+                  >
+                    View Catering Invoice
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

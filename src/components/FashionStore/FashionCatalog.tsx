@@ -20,13 +20,20 @@ import { motion } from 'motion/react';
 
 interface FashionCatalogProps {
   onOpenTailoringModal: () => void;
-  onOpenTailoringTracker: () => void;
+  onOpenTailoringTracker?: () => void;
+  onOpenTrackerModal?: () => void;
 }
 
 export const FashionCatalog: React.FC<FashionCatalogProps> = ({ 
   onOpenTailoringModal,
-  onOpenTailoringTracker
+  onOpenTailoringTracker,
+  onOpenTrackerModal
 }) => {
+  const handleOpenTracker = () => {
+    if (onOpenTailoringTracker) onOpenTailoringTracker();
+    else if (onOpenTrackerModal) onOpenTrackerModal();
+  };
+
   const { products, addToCart, searchQuery, tailoringRequests, bespokeSamples } = useApp();
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [selectedGender, setSelectedGender] = useState<string>('ALL');
@@ -34,7 +41,20 @@ export const FashionCatalog: React.FC<FashionCatalogProps> = ({
 
   const fashionProducts = products.filter(p => p.division === 'FASHION');
 
-  const categories = ['ALL', 'Traditional Wear', "Men's Wear", "Women's Wear", 'Corporate Wear', 'Shoes'];
+  const categories = [
+    'ALL',
+    'Traditional Wear',
+    'Ebira Traditional Clothing',
+    "Men's Wear",
+    "Women's Wear",
+    'Shirts',
+    'Trousers',
+    'Shoes',
+    'Bags',
+    'Belts',
+    'Watches',
+    'Fashion Accessories'
+  ];
 
   const filteredProducts = fashionProducts.filter(product => {
     const matchesCategory = selectedCategory === 'ALL' || product.category === selectedCategory;
@@ -81,8 +101,8 @@ export const FashionCatalog: React.FC<FashionCatalogProps> = ({
 
             {tailoringRequests.length > 0 && (
               <button
-                onClick={onOpenTailoringTracker}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-amber-300 border border-stone-700 font-semibold text-xs sm:text-sm transition-colors"
+                onClick={handleOpenTracker}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-amber-300 border border-stone-700 font-semibold text-xs sm:text-sm transition-colors cursor-pointer"
               >
                 <Layers className="w-4 h-4" />
                 <span>Track Tailoring Orders ({tailoringRequests.length})</span>
@@ -151,6 +171,7 @@ export const FashionCatalog: React.FC<FashionCatalogProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredProducts.map(product => {
             const currentSize = selectedSizeMap[product.id] || (product.sizes ? product.sizes[0] : undefined);
+            const isOutOfStock = !product.inStock || (typeof product.stockCount === 'number' && product.stockCount <= 0);
 
             return (
               <motion.div
@@ -165,7 +186,9 @@ export const FashionCatalog: React.FC<FashionCatalogProps> = ({
                     src={product.image}
                     alt={product.name}
                     referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300"
+                    className={`w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300 ${
+                      isOutOfStock ? 'opacity-60 grayscale-[35%]' : ''
+                    }`}
                   />
                   {product.badge && (
                     <span className="absolute top-3 left-3 text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full bg-stone-900/90 text-amber-300 border border-amber-400/40 backdrop-blur-xs">
@@ -174,6 +197,17 @@ export const FashionCatalog: React.FC<FashionCatalogProps> = ({
                   )}
                   <span className="absolute top-3 right-3 text-xs font-semibold px-2.5 py-1 rounded-full bg-white/90 text-stone-800 backdrop-blur-xs shadow-xs">
                     {product.category}
+                  </span>
+                  <span
+                    className={`absolute bottom-3 left-3 text-[10px] font-bold px-2.5 py-0.5 rounded-full shadow-xs ${
+                      isOutOfStock
+                        ? 'bg-rose-600 text-white'
+                        : 'bg-emerald-600/95 text-white'
+                    }`}
+                  >
+                    {isOutOfStock
+                      ? 'Out of Stock'
+                      : `In Stock (${product.stockCount ?? 15} avail)`}
                   </span>
                 </div>
 
@@ -235,11 +269,16 @@ export const FashionCatalog: React.FC<FashionCatalogProps> = ({
                     </div>
 
                     <button
-                      onClick={() => addToCart(product, 1, currentSize)}
-                      className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-white text-xs font-bold transition-all shadow-xs hover:shadow-md"
+                      onClick={() => !isOutOfStock && addToCart(product, 1, currentSize)}
+                      disabled={isOutOfStock}
+                      className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs ${
+                        isOutOfStock
+                          ? 'bg-stone-200 text-stone-400 cursor-not-allowed'
+                          : 'bg-stone-900 hover:bg-stone-800 text-white hover:shadow-md cursor-pointer'
+                      }`}
                     >
-                      <ShoppingBag className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Add to Cart</span>
+                      <ShoppingBag className={`w-3.5 h-3.5 ${isOutOfStock ? 'text-stone-400' : 'text-amber-400'}`} />
+                      <span>{isOutOfStock ? 'Out of Stock' : 'Add to Cart'}</span>
                     </button>
                   </div>
                 </div>

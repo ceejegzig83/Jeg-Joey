@@ -27,21 +27,44 @@ export const TailoringTrackerModal: React.FC<TailoringTrackerModalProps> = ({ is
   if (!isOpen) return null;
 
   const stages: { key: TailoringRequest['status']; label: string; desc: string }[] = [
-    { key: 'REQUESTED', label: 'Requested', desc: 'Order logged & measurements received' },
-    { key: 'APPROVED', label: 'Payment Approved', desc: '100% Upfront payment verified' },
-    { key: 'IN_PRODUCTION', label: 'In Production', desc: 'Fabrics cut & master tailoring active' },
-    { key: 'READY', label: 'Ready for Pickup / Fitting', desc: 'Finished, ironed & packaged at Okene Hub' },
-    { key: 'COMPLETED', label: 'Completed', desc: 'Delivered to customer' },
+    { key: 'ORDER_RECEIVED', label: 'ORDER RECEIVED', desc: 'Commission logged & deposit verified' },
+    { key: 'MEASUREMENT_CONFIRMED', label: 'MEASUREMENT CONFIRMED', desc: 'Master tailor verified sizing metrics' },
+    { key: 'CUTTING', label: 'CUTTING', desc: 'Precision pattern layout & fabric cutting' },
+    { key: 'SEWING', label: 'SEWING', desc: 'Garment stitching & bespoke embroidery' },
+    { key: 'FINISHING', label: 'FINISHING', desc: 'Buttons, lining, hemming & pressing' },
+    { key: 'QUALITY_CHECK', label: 'QUALITY CHECK', desc: 'Final inspection by head couturier' },
+    { key: 'READY', label: 'READY', desc: 'Ready for pickup / fitting at Okene Hub' },
+    { key: 'OUT_FOR_DELIVERY', label: 'OUT FOR DELIVERY', desc: 'Dispatched via Flourish Kogi logistics' },
+    { key: 'COMPLETED', label: 'COMPLETED', desc: 'Delivered & signed off by client' },
   ];
 
   const getStageIndex = (status: TailoringRequest['status']) => {
     switch (status) {
-      case 'REQUESTED': return 0;
-      case 'REVIEWING': case 'QUOTED': case 'APPROVED': return 1;
-      case 'IN_PRODUCTION': return 2;
-      case 'READY': return 3;
-      case 'COMPLETED': return 4;
-      default: return 0;
+      case 'ORDER_RECEIVED':
+      case 'REQUESTED':
+        return 0;
+      case 'MEASUREMENT_CONFIRMED':
+      case 'REVIEWING':
+      case 'QUOTED':
+      case 'APPROVED':
+        return 1;
+      case 'CUTTING':
+        return 2;
+      case 'SEWING':
+      case 'IN_PRODUCTION':
+        return 3;
+      case 'FINISHING':
+        return 4;
+      case 'QUALITY_CHECK':
+        return 5;
+      case 'READY':
+        return 6;
+      case 'OUT_FOR_DELIVERY':
+        return 7;
+      case 'COMPLETED':
+        return 8;
+      default:
+        return 0;
     }
   };
 
@@ -97,7 +120,10 @@ export const TailoringTrackerModal: React.FC<TailoringTrackerModalProps> = ({ is
                     {/* Item Header */}
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="text-[11px] font-bold text-amber-700 font-mono mb-0.5">
+                          Reference: {req.orderReference || req.id.toUpperCase()} • Qty: {req.quantity || 1} Outfit(s)
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="font-black text-sm text-stone-900">{req.garmentType}</span>
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
                             {req.fabricPreference}
@@ -118,9 +144,9 @@ export const TailoringTrackerModal: React.FC<TailoringTrackerModalProps> = ({ is
                       </div>
                     </div>
 
-                    {/* Stepper Progression */}
+                    {/* Stepper Progression (9 Stages) */}
                     <div className="relative pt-2">
-                      <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         {stages.map((stage, idx) => {
                           const isDone = idx <= currentIndex;
                           const isCurrent = idx === currentIndex;

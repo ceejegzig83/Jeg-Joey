@@ -25,7 +25,13 @@ import {
   VTUDataPlan,
   VTUTransaction,
   VTUSavedBeneficiary,
-  VTUConfig
+  VTUConfig,
+  AppNotification,
+  PaymentRecord,
+  PaymentEventRecord,
+  PayableEntityType,
+  AuditLogRecord,
+  SystemArchitectureStatus
 } from '../types';
 import { 
   INITIAL_PRODUCTS, 
@@ -160,6 +166,7 @@ interface AppContextType {
     pickupLocation: LocationPoint;
     destinationLocation: LocationPoint;
     vehicleType: RideRequest['vehicleType'];
+    tripMode?: 'STANDARD' | 'PRIVATE_HIRE';
     distanceKm: number;
     estimatedMinutes: number;
     totalFare: number;
@@ -167,10 +174,12 @@ interface AppContextType {
   }) => RideRequest | null;
   cancelRide: (rideId: string) => void;
   completeRide: (rideId: string) => void;
+  updateRideStatus: (rideId: string, status: RideRequest['status']) => void;
   
   // User Profile / Roles & Admin Security
   userProfile: UserProfile;
   setUserProfile: React.Dispatch<React.SetStateAction<UserProfile>>;
+  logoutCustomer: () => void;
   currentRole: 'CUSTOMER' | 'ADMIN' | 'DRIVER';
   setCurrentRole: (role: 'CUSTOMER' | 'ADMIN' | 'DRIVER') => void;
   isAdminAuthenticated: boolean;
@@ -178,6 +187,12 @@ interface AppContextType {
   setIsAdminLoginModalOpen: (open: boolean) => void;
   loginAdmin: (usernameOrEmail: string, password: string) => boolean;
   logoutAdmin: () => void;
+
+  // In-App Demo Notifications
+  notifications: AppNotification[];
+  addNotification: (title: string, message: string, category: AppNotification['category']) => void;
+  markAllNotificationsRead: () => void;
+  clearNotifications: () => void;
   
   // Modals & UI
   isCartOpen: boolean;
@@ -190,11 +205,51 @@ interface AppContextType {
   setActiveInvoice: (inv: any | null) => void;
   isContactModalOpen: boolean;
   setIsContactModalOpen: (open: boolean) => void;
+  isCustomerAccountOpen: boolean;
+  setIsCustomerAccountOpen: (open: boolean) => void;
+  customerAccountTab: string;
+  setCustomerAccountTab: (tab: string) => void;
+  openCustomerAccount: (tab?: string) => void;
   
-  // Verification Safeguards
+  // Verification Safeguards & Server-Side Paystack Lifecycle
   verifyOrderCoDPayment: (orderId: string, verifiedBy?: string) => void;
   verifyRidePayment: (rideId: string, verifiedBy?: string) => void;
   sendReceiptNotification: (doc: any, channel?: 'WHATSAPP' | 'SMS') => void;
+  authToken: string | null;
+  setAuthToken: (token: string | null) => void;
+  systemStatus: SystemArchitectureStatus | null;
+  paymentRecords: PaymentRecord[];
+  paymentEvents: PaymentEventRecord[];
+  auditLogs: AuditLogRecord[];
+  refreshSystemData: () => Promise<void>;
+  initializeOrderPayment: (params: {
+    entityType?: PayableEntityType;
+    entityId: string;
+    channel: PaymentMethod;
+    customerEmail?: string;
+    customerPhone?: string;
+    idempotencyKey?: string;
+  }) => Promise<{
+    success: boolean;
+    mode: 'LIVE_MODE' | 'TEST_MODE';
+    reference?: string;
+    amountNaira?: number;
+    amountKobo?: number;
+    authorizationUrl?: string;
+    payment?: PaymentRecord;
+    error?: string;
+  }>;
+  verifyOrderPayment: (params: {
+    reference: string;
+    simulatedOutcome?: 'SUCCESS' | 'FAILED' | 'ABANDONED';
+  }) => Promise<{
+    success: boolean;
+    order?: Order;
+    payment?: PaymentRecord;
+    message?: string;
+    error?: string;
+  }>;
+  refundPaymentRecord: (reference: string, reason?: string) => Promise<boolean>;
 
   // Airtime & Data VTU Module
   vtuConfig: VTUConfig;
@@ -257,10 +312,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [activeDivision, setActiveDivision] = useState<Division>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   
-  // Products state
+  // Products state (auto-merges any newly added default products into cached inventory)
   const [products, setProducts] = useState<Product[]>(() => {
     const saved = localStorage.getItem('fdc_products');
-    return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
+    if (!saved) return INITIAL_PRODUCTS;
+    try {
+      const parsed: Product[] = JSON.parse(saved);
+      const existingIds = new Set(parsed.map((p) => p.id));
+      const missingDefaults = INITIAL_PRODUCTS.filter((p) => !existingIds.has(p.id));
+      return missingDefaults.length > 0 ? [...parsed, ...missingDefaults] : parsed;
+    } catch {
+      return INITIAL_PRODUCTS;
+    }
   });
 
   // Bespoke samples state
@@ -462,7 +525,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   });
 
-  // Admin authentication state
+  // Admin authentication state & JWT Token
+  const [authToken, setAuthTokenState] = useState<string | null>(() => {
+    return localStorage.getItem('fdc_auth_token');
+  });
+
+  const setAuthToken = (token: string | null) => {
+    setAuthTokenState(token);
+    if (token) {
+      localStorage.setItem('fdc_auth_token', token);
+    } else {
+      localStorage.removeItem('fdc_auth_token');
+    }
+  };
+
+  const [systemStatus, setSystemStatus] = useState<SystemArchitectureStatus | null>(null);
+  const [paymentRecords, setPaymentRecords] = useState<PaymentRecord[]>([]);
+  const [paymentEvents, setPaymentEvents] = useState<PaymentEventRecord[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLogRecord[]>([]);
+
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
     return localStorage.getItem('fdc_admin_authenticated') === 'true';
   });
@@ -473,6 +554,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const isAuth = localStorage.getItem('fdc_admin_authenticated') === 'true';
     return isAuth ? 'ADMIN' : 'CUSTOMER';
   });
+
+  const getAdminHeaders = (): Record<string, string> => {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'x-fdc-admin-session': 'FDC_HQ_VERIFIED_SESSION'
+    };
+    if (authToken) {
+      headers.Authorization = `Bearer ${authToken}`;
+    }
+    return headers;
+  };
 
   const setCurrentRole = (role: 'CUSTOMER' | 'ADMIN' | 'DRIVER') => {
     if (role === 'ADMIN') {
@@ -488,7 +580,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const loginAdmin = (usernameOrEmail: string, pass: string): boolean => {
     const normalizedUser = usernameOrEmail.trim().toLowerCase();
-    if (normalizedUser === 'ceejegzig83@gmail.com' && pass === 'ceejegzig83') {
+    if (
+      (normalizedUser === 'ceejegzig83@gmail.com' || normalizedUser === 'admin') &&
+      pass === 'ceejegzig83'
+    ) {
       setIsAdminAuthenticated(true);
       localStorage.setItem('fdc_admin_authenticated', 'true');
       _setCurrentRole('ADMIN');
@@ -501,8 +596,76 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const logoutAdmin = () => {
     setIsAdminAuthenticated(false);
     localStorage.removeItem('fdc_admin_authenticated');
+    setAuthToken(null);
     _setCurrentRole('CUSTOMER');
     showToast('Administrator session closed successfully.', 'info', 'Logged Out');
+  };
+
+  const logoutCustomer = () => {
+    setUserProfile({
+      name: 'Guest Customer',
+      phone: '',
+      email: '',
+      defaultAddress: 'Okene, Kogi State',
+      defaultArea: 'Okene Central',
+      role: 'CUSTOMER'
+    });
+    setAuthToken(null);
+    setCart([]);
+    setIsCustomerAccountOpen(false);
+    showToast('Customer session signed out and cleared.', 'info', 'Signed Out');
+  };
+
+  // In-App Demo Notifications State
+  const [notifications, setNotifications] = useState<AppNotification[]>(() => {
+    const saved = localStorage.getItem('fdc_notifications');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        // ignore
+      }
+    }
+    return [
+      {
+        id: 'notif-init-1',
+        title: 'IN-APP DEMO NOTIFICATION: Welcome to Flourish Destiny Super App',
+        message: 'All 6 Kogi State business hubs (Fashion, Bakery, Catering, Grocery, Kogi Ride & VTU) are online.',
+        category: 'ORDER',
+        createdAt: new Date().toISOString(),
+        read: false,
+        isDemoNotification: true
+      }
+    ];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('fdc_notifications', JSON.stringify(notifications));
+  }, [notifications]);
+
+  const addNotification = (
+    title: string,
+    message: string,
+    category: AppNotification['category']
+  ) => {
+    const newNotif: AppNotification = {
+      id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      title: title.startsWith('IN-APP DEMO') ? title : `IN-APP DEMO NOTIFICATION: ${title}`,
+      message,
+      category,
+      createdAt: new Date().toISOString(),
+      read: false,
+      isDemoNotification: true
+    };
+    setNotifications((prev) => [newNotif, ...prev.slice(0, 29)]);
+  };
+
+  const markAllNotificationsRead = () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+  };
+
+  const clearNotifications = () => {
+    setNotifications([]);
   };
 
   // Modals
@@ -511,6 +674,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isSpecModalOpen, setIsSpecModalOpen] = useState(false);
   const [activeInvoice, setActiveInvoice] = useState<any | null>(null);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
+  const [isCustomerAccountOpen, setIsCustomerAccountOpen] = useState(false);
+  const [customerAccountTab, setCustomerAccountTab] = useState<string>('OVERVIEW');
+
+  const openCustomerAccount = (tab: string = 'OVERVIEW') => {
+    setCustomerAccountTab(tab);
+    setIsCustomerAccountOpen(true);
+  };
 
   // VTU State
   const [vtuConfig, setVtuConfig] = useState<VTUConfig>(() => {
@@ -643,7 +813,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem('fdc_vtu_beneficiaries', JSON.stringify(savedBeneficiaries));
   }, [savedBeneficiaries]);
 
-  // Sync VTU Config & Plans from Backend API on startup
+  // Sync VTU Config, Plans, System Architecture Status, Payments & Audit Logs from Backend API
+  const refreshSystemData = async () => {
+    try {
+      const [sysRes, payRes, audRes] = await Promise.all([
+        fetch('/api/system/status'),
+        fetch('/api/payments'),
+        fetch('/api/admin/audit-logs')
+      ]);
+      if (sysRes.ok) {
+        const sysData = await sysRes.json();
+        if (sysData.success && sysData.status) {
+          setSystemStatus(sysData.status);
+        }
+      }
+      if (payRes.ok) {
+        const payData = await payRes.json();
+        if (payData.success) {
+          if (Array.isArray(payData.payments)) setPaymentRecords(payData.payments);
+          if (Array.isArray(payData.events)) setPaymentEvents(payData.events);
+        }
+      }
+      if (audRes.ok) {
+        const audData = await audRes.json();
+        if (audData.success && Array.isArray(audData.auditLogs)) {
+          setAuditLogs(audData.auditLogs);
+        }
+      }
+    } catch {
+      // Fallback safely when offline
+    }
+  };
+
   useEffect(() => {
     const syncVTUBackend = async () => {
       try {
@@ -684,6 +885,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } catch {
         // Running in offline/fallback preview mode; local state remains active
       }
+      await refreshSystemData();
     };
     syncVTUBackend();
   }, []);
@@ -696,18 +898,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     selectedColor?: string, 
     specialNotes?: string
   ) => {
+    // Enforce Out of Stock check
+    const liveProduct = products.find(p => p.id === product.id) || product;
+    if (!liveProduct.inStock || (typeof liveProduct.stockCount === 'number' && liveProduct.stockCount <= 0)) {
+      showToast(`"${liveProduct.name}" is currently Out of Stock and cannot be purchased.`, 'error', 'Out of Stock');
+      return;
+    }
+
+    if (quantity <= 0) return;
+
+    let addedSuccessfully = true;
     setCart(prev => {
       const existingIndex = prev.findIndex(item => 
         item.productId === product.id && 
-        item.selectedSize === selectedSize && 
-        item.selectedColor === selectedColor
+        item.selectedSize === (selectedSize || (product.sizes ? product.sizes[0] : undefined)) && 
+        item.selectedColor === (selectedColor || (product.colors ? product.colors[0] : undefined))
       );
 
       if (existingIndex > -1) {
+        const currentQty = prev[existingIndex].quantity;
+        if (typeof liveProduct.stockCount === 'number' && currentQty + quantity > liveProduct.stockCount) {
+          addedSuccessfully = false;
+          return prev;
+        }
         const updated = [...prev];
-        updated[existingIndex].quantity += quantity;
+        updated[existingIndex] = {
+          ...updated[existingIndex],
+          quantity: currentQty + quantity
+        };
         return updated;
       } else {
+        const cappedQty = typeof liveProduct.stockCount === 'number' ? Math.min(quantity, liveProduct.stockCount) : quantity;
         const newItem: CartItem = {
           id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
           productId: product.id,
@@ -715,7 +936,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           name: product.name,
           price: product.price,
           image: product.image,
-          quantity,
+          quantity: cappedQty,
           selectedSize: selectedSize || (product.sizes ? product.sizes[0] : undefined),
           selectedColor: selectedColor || (product.colors ? product.colors[0] : undefined),
           specialNotes
@@ -724,6 +945,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     });
 
+    if (!addedSuccessfully) {
+      showToast(`Maximum available stock (${liveProduct.stockCount}) reached for "${liveProduct.name}"`, 'warning', 'Stock Limit');
+      return;
+    }
+
     showToast(`Added "${product.name}" to cart`, 'success', 'Cart Updated');
   };
 
@@ -731,6 +957,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (newQty <= 0) {
       removeFromCart(itemId);
       return;
+    }
+    const targetItem = cart.find(i => i.id === itemId);
+    if (targetItem) {
+      const liveProd = products.find(p => p.id === targetItem.productId);
+      if (liveProd && typeof liveProd.stockCount === 'number' && newQty > liveProd.stockCount) {
+        showToast(`Only ${liveProd.stockCount} units of "${liveProd.name}" available in stock.`, 'warning', 'Stock Limit');
+        return;
+      }
     }
     setCart(prev => prev.map(item => item.id === itemId ? { ...item, quantity: newQty } : item));
   };
@@ -755,16 +989,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // --- ADMIN CMS: Products Management ---
   const addProduct = (product: Product) => {
     setProducts(prev => [product, ...prev]);
+    fetch('/api/admin/products', {
+      method: 'POST',
+      headers: getAdminHeaders(),
+      body: JSON.stringify(product)
+    }).then(() => refreshSystemData()).catch(() => {});
     showToast(`Product "${product.name}" successfully added to ${product.division} catalog`, 'success', 'Item Created');
   };
 
   const updateProduct = (product: Product) => {
     setProducts(prev => prev.map(p => p.id === product.id ? product : p));
+    fetch(`/api/admin/products/${encodeURIComponent(product.id)}`, {
+      method: 'PUT',
+      headers: getAdminHeaders(),
+      body: JSON.stringify(product)
+    }).then(() => refreshSystemData()).catch(() => {});
     showToast(`Product "${product.name}" updated successfully`, 'success', 'Changes Saved');
   };
 
   const deleteProduct = (productId: string) => {
     setProducts(prev => prev.filter(p => p.id !== productId));
+    fetch(`/api/admin/products/${encodeURIComponent(productId)}`, {
+      method: 'DELETE',
+      headers: getAdminHeaders()
+    }).then(() => refreshSystemData()).catch(() => {});
     showToast('Product deleted from inventory', 'info', 'Item Removed');
   };
 
@@ -772,6 +1020,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setProducts(prev => prev.map(p => {
       if (p.id === productId) {
         const nextState = !p.inStock;
+        fetch(`/api/admin/inventory/${encodeURIComponent(productId)}`, {
+          method: 'PATCH',
+          headers: getAdminHeaders(),
+          body: JSON.stringify({ stockCount: p.stockCount, inStock: nextState })
+        }).then(() => refreshSystemData()).catch(() => {});
         showToast(`"${p.name}" is now marked as ${nextState ? 'In Stock' : 'Out of Stock'}`, 'info');
         return { ...p, inStock: nextState };
       }
@@ -782,8 +1035,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const quickUpdateProductPrice = (productId: string, newPrice: number) => {
     setProducts(prev => prev.map(p => {
       if (p.id === productId) {
+        const updated = { ...p, price: newPrice };
+        fetch(`/api/admin/products/${encodeURIComponent(productId)}`, {
+          method: 'PUT',
+          headers: getAdminHeaders(),
+          body: JSON.stringify(updated)
+        }).then(() => refreshSystemData()).catch(() => {});
         showToast(`Updated price for "${p.name}" to ₦${newPrice.toLocaleString()}`, 'success');
-        return { ...p, price: newPrice };
+        return updated;
       }
       return p;
     }));
@@ -953,9 +1212,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       announcement,
       fareConfig,
       orders,
+      tailoringRequests,
+      cakeOrders,
+      cateringBookings,
+      rideHistory,
+      vtuTransactions,
       exportedAt: new Date().toISOString()
     };
-    return JSON.stringify(data, null, 2);
+    const jsonString = JSON.stringify(data, null, 2);
+    try {
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `flourish-destiny-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('Full site JSON backup downloaded successfully!', 'success', 'Backup Exported');
+    } catch {
+      // Fallback if DOM download is unavailable
+    }
+    return jsonString;
   };
 
   const importSiteDataBackup = (jsonData: string): boolean => {
@@ -983,20 +1262,210 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // --- Orders & Inquiries ---
   const createOrder = (orderData: Omit<Order, 'id' | 'orderNumber' | 'createdAt'>): Order => {
     const orderNumber = `FDC-ORD-${Math.floor(1000 + Math.random() * 9000)}`;
+    const orderId = `ord-${Date.now()}`;
+    const shouldDeductImmediately =
+      orderData.paymentMethod === 'CASH_ON_DELIVERY' || orderData.paymentStatus === 'PAID';
+
     const newOrder: Order = {
       ...orderData,
-      id: `ord-${Date.now()}`,
+      id: orderId,
       orderNumber,
+      inventoryDeducted: shouldDeductImmediately,
       createdAt: new Date().toISOString(),
     };
 
+    // Only deduct stock immediately if Cash on Delivery or already verified PAID.
+    // For PENDING online orders, inventory is deducted once server payment verification succeeds!
+    if (shouldDeductImmediately) {
+      setProducts(prev => prev.map(prod => {
+        const orderedQty = orderData.items
+          .filter(item => item.productId === prod.id)
+          .reduce((sum, item) => sum + item.quantity, 0);
+        if (orderedQty > 0) {
+          const nextStock = Math.max(0, (prod.stockCount || 0) - orderedQty);
+          return {
+            ...prod,
+            stockCount: nextStock,
+            inStock: nextStock > 0 ? prod.inStock : false
+          };
+        }
+        return prod;
+      }));
+    }
+
     setOrders(prev => [newOrder, ...prev]);
     clearCart();
+
+    // Sync order creation with backend DatabaseService
+    fetch('/api/orders', {
+      method: 'POST',
+      headers: getAdminHeaders(),
+      body: JSON.stringify({
+        id: newOrder.id,
+        orderNumber: newOrder.orderNumber,
+        customerName: newOrder.customerName,
+        customerPhone: newOrder.customerPhone,
+        customerEmail: newOrder.customerEmail || userProfile.email,
+        customerAddress: newOrder.customerAddress,
+        deliveryArea: newOrder.deliveryArea,
+        items: newOrder.items,
+        paymentMethod: newOrder.paymentMethod,
+        notes: newOrder.notes,
+        estimatedDeliveryTime: newOrder.estimatedDeliveryTime
+      })
+    }).then(() => refreshSystemData()).catch(() => {});
+
+    addNotification(
+      `Order ${orderNumber} Placed`,
+      `Order for ₦${newOrder.total.toLocaleString()} (${newOrder.items.length} item(s)) received for ${newOrder.deliveryArea}.`,
+      'ORDER'
+    );
     showToast(`Order ${orderNumber} placed successfully!`, 'success', 'Order Confirmed');
     return newOrder;
   };
 
+  const initializeOrderPayment: AppContextType['initializeOrderPayment'] = async (params) => {
+    try {
+      const res = await fetch('/api/payments/initialize', {
+        method: 'POST',
+        headers: getAdminHeaders(),
+        body: JSON.stringify({
+          entityType: params.entityType || 'ORDER',
+          entityId: params.entityId,
+          orderId: params.entityId,
+          channel: params.channel,
+          customerEmail: params.customerEmail || userProfile.email,
+          customerPhone: params.customerPhone || userProfile.phone,
+          idempotencyKey: params.idempotencyKey
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        await refreshSystemData();
+        return {
+          success: true,
+          mode: data.mode || 'TEST_MODE',
+          reference: data.reference,
+          amountNaira: data.amountNaira,
+          amountKobo: data.amountKobo,
+          authorizationUrl: data.authorizationUrl,
+          payment: data.payment
+        };
+      }
+      return {
+        success: false,
+        mode: 'TEST_MODE',
+        error: data.error || 'Could not initialize payment on server.'
+      };
+    } catch {
+      const fallbackRef = `PSTK_FDC_ORDER_${Date.now().toString().slice(-6)}`;
+      return {
+        success: true,
+        mode: 'TEST_MODE',
+        reference: fallbackRef
+      };
+    }
+  };
+
+  const verifyOrderPayment: AppContextType['verifyOrderPayment'] = async ({
+    reference,
+    simulatedOutcome = 'SUCCESS'
+  }) => {
+    try {
+      const res = await fetch('/api/payments/verify', {
+        method: 'POST',
+        headers: getAdminHeaders(),
+        body: JSON.stringify({ reference, simulatedOutcome })
+      });
+      const data = await res.json();
+
+      if (data.order) {
+        const verifiedOrder: Order = data.order;
+        setOrders(prev =>
+          prev.map(o =>
+            o.id === verifiedOrder.id || o.orderNumber === verifiedOrder.orderNumber
+              ? verifiedOrder
+              : o
+          )
+        );
+        if (verifiedOrder.paymentStatus === 'PAID') {
+          // Sync updated product stock from server
+          fetch('/api/products')
+            .then(r => r.json())
+            .then(pData => {
+              if (pData.success && Array.isArray(pData.products)) {
+                setProducts(pData.products);
+              }
+            })
+            .catch(() => {});
+        }
+      }
+
+      await refreshSystemData();
+
+      if (data.success) {
+        showToast(
+          data.message || `Payment ${reference} verified by server!`,
+          'success',
+          'Payment Verified'
+        );
+      } else {
+        showToast(
+          data.error || data.message || 'Payment was not completed.',
+          simulatedOutcome === 'ABANDONED' ? 'warning' : 'error',
+          simulatedOutcome === 'ABANDONED' ? 'Checkout Abandoned' : 'Payment Failed'
+        );
+      }
+
+      return {
+        success: Boolean(data.success),
+        order: data.order,
+        payment: data.payment,
+        message: data.message,
+        error: data.error
+      };
+    } catch {
+      return {
+        success: simulatedOutcome === 'SUCCESS',
+        message: 'Verified in local fallback mode.'
+      };
+    }
+  };
+
+  const refundPaymentRecord: AppContextType['refundPaymentRecord'] = async (reference, reason) => {
+    try {
+      const res = await fetch(`/api/payments/${encodeURIComponent(reference)}/refund`, {
+        method: 'POST',
+        headers: getAdminHeaders(),
+        body: JSON.stringify({ reason: reason || 'Refunded by HQ Admin' })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        if (data.order) {
+          setOrders(prev => prev.map(o => (o.id === data.order.id ? data.order : o)));
+        }
+        await refreshSystemData();
+        showToast(`Payment ${reference} marked as REFUNDED.`, 'info', 'Payment Refunded');
+        return true;
+      }
+      showToast(data.error || 'Could not refund payment.', 'error');
+      return false;
+    } catch {
+      return false;
+    }
+  };
+
   const updateOrderStatus = (orderId: string, status: Order['orderStatus'], paymentStatus?: Order['paymentStatus']) => {
+    const targetOrder = orders.find(o => o.id === orderId);
+    if (
+      targetOrder &&
+      targetOrder.orderStatus === 'CANCELLED' &&
+      (status === 'COMPLETED' || status === 'DELIVERED' || status === 'OUT_FOR_DELIVERY')
+    ) {
+      showToast('Cannot mark a CANCELLED order as Delivered/Completed without re-confirming it first.', 'error', 'Invalid Status Transition');
+      return;
+    }
+
     setOrders(prev => prev.map(o => {
       if (o.id === orderId) {
         return {
@@ -1007,60 +1476,106 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       return o;
     }));
+    fetch(`/api/orders/${encodeURIComponent(orderId)}/status`, {
+      method: 'PATCH',
+      headers: getAdminHeaders(),
+      body: JSON.stringify({ orderStatus: status, paymentStatus })
+    }).then(() => refreshSystemData()).catch(() => {});
+    addNotification(
+      `Order ${targetOrder?.orderNumber || orderId} Updated`,
+      `Order status changed to ${status.replace(/_/g, ' ')}.`,
+      'ORDER'
+    );
     showToast(`Order status updated to "${status}"`, 'info');
   };
 
   const createTailoringRequest = (data: Omit<TailoringRequest, 'id' | 'createdAt' | 'status' | 'paymentStatus'>): TailoringRequest => {
+    const orderReference = data.orderReference || `FDC-TLR-${Math.floor(1000 + Math.random() * 9000)}`;
     const newReq: TailoringRequest = {
       ...data,
       id: `tailor-${Date.now()}`,
-      status: 'APPROVED',
+      orderReference,
+      status: 'ORDER_RECEIVED',
       paymentStatus: 'PAID',
       createdAt: new Date().toISOString()
     };
     setTailoringRequests(prev => [newReq, ...prev]);
-    showToast('Bespoke Tailoring Commission placed and paid online!', 'success', 'Commission Received');
+    addNotification(
+      `Tailoring Order ${orderReference} Received`,
+      `Bespoke ${data.garmentType} commission logged at stage: ORDER RECEIVED.`,
+      'TAILORING'
+    );
+    showToast(`Bespoke Tailoring Order ${orderReference} received & confirmed!`, 'success', 'Commission Received');
     return newReq;
   };
 
   const updateTailoringStatus = (id: string, status: TailoringRequest['status'], paymentStatus?: TailoringRequest['paymentStatus']) => {
     setTailoringRequests(prev => prev.map(t => t.id === id ? { ...t, status, paymentStatus: paymentStatus || t.paymentStatus } : t));
+    addNotification(
+      `Tailoring Stage Updated (${id})`,
+      `Your bespoke outfit production stage is now: ${status.replace(/_/g, ' ')}.`,
+      'TAILORING'
+    );
     showToast(`Tailoring commission status updated to "${status}"`, 'info');
   };
 
   const createCakeOrder = (data: Omit<CakeOrder, 'id' | 'createdAt' | 'status' | 'paymentStatus'>): CakeOrder => {
+    const orderReference = data.orderReference || `FDC-CAKE-${Math.floor(1000 + Math.random() * 9000)}`;
     const newCake: CakeOrder = {
       ...data,
       id: `cake-${Date.now()}`,
+      orderReference,
       status: 'DESIGN_CONFIRMED',
       paymentStatus: 'PAID',
       createdAt: new Date().toISOString()
     };
     setCakeOrders(prev => [newCake, ...prev]);
-    showToast('Custom Celebration Cake order placed and scheduled!', 'success', 'Baking Scheduled');
+    addNotification(
+      `Custom Cake Order ${orderReference} Received`,
+      `${data.cakeType} (${data.cakeSize}) scheduled for ${data.deliveryDate}.`,
+      'BAKERY'
+    );
+    showToast(`Custom Cake order ${orderReference} placed and scheduled!`, 'success', 'Baking Scheduled');
     return newCake;
   };
 
   const updateCakeStatus = (id: string, status: CakeOrder['status'], paymentStatus?: CakeOrder['paymentStatus']) => {
     setCakeOrders(prev => prev.map(c => c.id === id ? { ...c, status, paymentStatus: paymentStatus || c.paymentStatus } : c));
+    addNotification(
+      `Custom Cake Status Updated`,
+      `Cake order ${id} status updated to ${status.replace(/_/g, ' ')}.`,
+      'BAKERY'
+    );
     showToast(`Cake order status updated to "${status}"`, 'info');
   };
 
   const createCateringBooking = (data: Omit<CateringBooking, 'id' | 'createdAt' | 'status' | 'paymentStatus'>): CateringBooking => {
+    const bookingReference = data.bookingReference || `FDC-CAT-${Math.floor(1000 + Math.random() * 9000)}`;
     const newBooking: CateringBooking = {
       ...data,
       id: `cat-${Date.now()}`,
-      status: 'BOOKING_CONFIRMED',
+      bookingReference,
+      status: 'CONFIRMED',
       paymentStatus: 'PAID',
       createdAt: new Date().toISOString()
     };
     setCateringBookings(prev => [newBooking, ...prev]);
-    showToast('Royal Catering Booking confirmed and reserved!', 'success', 'Date Secured');
+    addNotification(
+      `Catering Booking ${bookingReference} Confirmed`,
+      `${data.eventType} for ${data.expectedGuests} guests at ${data.eventLocation} reserved.`,
+      'CATERING'
+    );
+    showToast(`Royal Catering Booking ${bookingReference} confirmed and reserved!`, 'success', 'Date Secured');
     return newBooking;
   };
 
   const updateCateringStatus = (id: string, status: CateringBooking['status'], paymentStatus?: CateringBooking['paymentStatus']) => {
     setCateringBookings(prev => prev.map(c => c.id === id ? { ...c, status, paymentStatus: paymentStatus || c.paymentStatus } : c));
+    addNotification(
+      `Catering Booking Status Updated`,
+      `Event catering reservation ${id} status is now ${status.replace(/_/g, ' ')}.`,
+      'CATERING'
+    );
     showToast(`Catering booking status updated to "${status}"`, 'info');
   };
 
@@ -1070,6 +1585,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     pickupLocation: LocationPoint;
     destinationLocation: LocationPoint;
     vehicleType: RideRequest['vehicleType'];
+    tripMode?: 'STANDARD' | 'PRIVATE_HIRE';
     distanceKm: number;
     estimatedMinutes: number;
     totalFare: number;
@@ -1085,6 +1601,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       pickupLocation: data.pickupLocation,
       destinationLocation: data.destinationLocation,
       vehicleType: data.vehicleType,
+      tripMode: data.tripMode || 'STANDARD',
       distanceKm: data.distanceKm,
       estimatedMinutes: data.estimatedMinutes,
       baseFare: data.vehicleType === 'KEKE' ? fareConfig.kekeBaseFare : fareConfig.carBaseFare,
@@ -1094,7 +1611,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       paymentMethod: data.paymentMethod,
       paymentStatus: 'PAID',
       paymentVerifiedAt: new Date().toISOString(),
-      paymentGatewayRef: `FLW_KOGI_${Math.floor(100000 + Math.random() * 900000)}`,
+      paymentGatewayRef: `DEMO_KOGI_${Math.floor(100000 + Math.random() * 900000)}`,
       status: 'DRIVER_ASSIGNED',
       driver: assignedDriver,
       createdAt: new Date().toISOString()
@@ -1102,24 +1619,85 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setActiveRide(newRide);
     setRideHistory(prev => [newRide, ...prev]);
+    addNotification(
+      `Driver Assigned (${assignedDriver.name})`,
+      `${data.vehicleType === 'KEKE' ? 'Keke' : 'Saloon Car'} (${assignedDriver.plateNumber}) dispatched from ${data.pickupLocation.name} to ${data.destinationLocation.name}.`,
+      'RIDE'
+    );
     showToast(`Driver ${assignedDriver.name} (${assignedDriver.plateNumber}) dispatched!`, 'success', 'Ride Dispatched');
     return newRide;
   };
 
+  const updateRideStatus = (rideId: string, nextStatus: RideRequest['status']) => {
+    const target = (activeRide && activeRide.id === rideId ? activeRide : null) || rideHistory.find(r => r.id === rideId);
+    if (!target) return;
+
+    // Prevent impossible transitions from terminal states
+    if (target.status === 'CANCELLED') {
+      showToast('A cancelled ride cannot transition to another status. Please book a new ride.', 'error', 'Invalid Ride Transition');
+      return;
+    }
+    if (target.status === 'TRIP_COMPLETED' && nextStatus !== 'TRIP_COMPLETED') {
+      showToast('A completed trip cannot be reverted or modified.', 'error', 'Invalid Ride Transition');
+      return;
+    }
+
+    if (nextStatus === 'CANCELLED') {
+      cancelRide(rideId);
+      return;
+    }
+    if (nextStatus === 'TRIP_COMPLETED') {
+      completeRide(rideId);
+      return;
+    }
+
+    const updatedRide: RideRequest = { ...target, status: nextStatus };
+    if (activeRide && activeRide.id === rideId) {
+      setActiveRide(updatedRide);
+    }
+    setRideHistory(prev => prev.map(r => r.id === rideId ? updatedRide : r));
+    addNotification(
+      `Ride Status: ${nextStatus.replace(/_/g, ' ')}`,
+      `Trip ${rideId} is now ${nextStatus.replace(/_/g, ' ')}.`,
+      'RIDE'
+    );
+    showToast(`Ride status updated to ${nextStatus.replace(/_/g, ' ')}`, 'info');
+  };
+
   const cancelRide = (rideId: string) => {
+    const target = (activeRide && activeRide.id === rideId ? activeRide : null) || rideHistory.find(r => r.id === rideId);
+    if (target && target.status === 'TRIP_COMPLETED') {
+      showToast('Cannot cancel a trip that has already been completed.', 'error', 'Invalid Ride Transition');
+      return;
+    }
     if (activeRide && activeRide.id === rideId) {
       const updated = { ...activeRide, status: 'CANCELLED' as const };
       setActiveRide(null);
       setRideHistory(prev => prev.map(r => r.id === rideId ? updated : r));
+      addNotification(
+        `Ride Cancelled (${rideId})`,
+        `Your trip from ${activeRide.pickupLocation.name} was cancelled.`,
+        'RIDE'
+      );
       showToast('Ride trip cancelled', 'info');
     }
   };
 
   const completeRide = (rideId: string) => {
+    const target = (activeRide && activeRide.id === rideId ? activeRide : null) || rideHistory.find(r => r.id === rideId);
+    if (target && target.status === 'CANCELLED') {
+      showToast('Cannot complete a ride that was already cancelled.', 'error', 'Invalid Ride Transition');
+      return;
+    }
     if (activeRide && activeRide.id === rideId) {
       const updated = { ...activeRide, status: 'TRIP_COMPLETED' as const, completedAt: new Date().toISOString() };
       setActiveRide(null);
       setRideHistory(prev => prev.map(r => r.id === rideId ? updated : r));
+      addNotification(
+        `Ride Completed (${rideId})`,
+        `Trip to ${activeRide.destinationLocation.name} completed (₦${activeRide.totalFare.toLocaleString()}).`,
+        'RIDE'
+      );
       showToast('Trip marked completed. Thank you for riding with Flourish Destiny!', 'success', 'Trip Completed');
     }
   };
@@ -1137,6 +1715,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       return o;
     }));
+    fetch(`/api/orders/${encodeURIComponent(orderId)}/verify-cod`, {
+      method: 'POST',
+      headers: getAdminHeaders(),
+      body: JSON.stringify({ verifiedBy })
+    }).then(() => refreshSystemData()).catch(() => {});
     showToast(`Order ${orderId} Cash on Delivery verified & settled`, 'success', 'CoD Verified');
   };
 
@@ -1155,26 +1738,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (activeRide && activeRide.id === rideId) {
       setActiveRide(prev => prev ? { ...prev, paymentStatus: 'PAID', paymentVerifiedAt: new Date().toISOString() } : null);
     }
+    fetch(`/api/rides/${encodeURIComponent(rideId)}/verify-payment`, {
+      method: 'POST',
+      headers: getAdminHeaders(),
+      body: JSON.stringify({ verifiedBy })
+    }).then(() => refreshSystemData()).catch(() => {});
     showToast(`Trip ${rideId} fare confirmed & verified`, 'success', 'Fare Cleared');
   };
 
   const sendReceiptNotification = (doc: any, channel: 'WHATSAPP' | 'SMS' = 'WHATSAPP') => {
-    const ref = doc.orderNumber || doc.id || 'REF';
+    const ref = doc.orderNumber || doc.orderReference || doc.bookingReference || doc.id || 'REF';
     const amount = doc.total || doc.totalFare || doc.totalQuote || doc.estimatedPrice || doc.depositPaid || 0;
     const phone = doc.customerPhone || businessInfo.phone;
-    const message = encodeURIComponent(
-      `*FLOURISH DESTINY COLLECTION - OFFICIAL RECEIPT*\n` +
-      `----------------------------------------\n` +
-      `Reference: ${ref}\n` +
-      `Amount Settled: ₦${amount.toLocaleString()}\n` +
-      `Date: ${new Date().toLocaleDateString()}\n` +
-      `Location: Okene, Kogi State\n` +
-      `HQ Helpline: ${businessInfo.phone}\n` +
-      `Thank you for trusting Flourish Destiny Collection!`
+    addNotification(
+      `Receipt Prepared (${ref})`,
+      `[IN-APP DEMO NOTIFICATION] Simulated ${channel} receipt notification logged for ${phone} (₦${amount.toLocaleString()}).`,
+      'PAYMENT'
     );
-    const targetUrl = `https://wa.me/${phone.replace(/[^0-9]/g, '')}?text=${message}`;
-    window.open(targetUrl, '_blank');
-    showToast(`Official receipt dispatched via ${channel} to ${phone}`, 'success', 'Receipt Dispatched');
+    showToast(
+      `[IN-APP DEMO NOTIFICATION] Simulated ${channel} receipt logged for ${phone} (Ref: ${ref})`,
+      'info',
+      'In-App Demo Notification'
+    );
   };
 
   // --- AIRTIME & DATA VTU OPERATIONS ---
@@ -1627,8 +2212,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         requestRide,
         cancelRide,
         completeRide,
+        updateRideStatus,
         userProfile,
         setUserProfile,
+        logoutCustomer,
         currentRole,
         setCurrentRole,
         isAdminAuthenticated,
@@ -1636,6 +2223,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setIsAdminLoginModalOpen,
         loginAdmin,
         logoutAdmin,
+        notifications,
+        addNotification,
+        markAllNotificationsRead,
+        clearNotifications,
         isCartOpen,
         setIsCartOpen,
         isCheckoutOpen,
@@ -1646,9 +2237,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setActiveInvoice,
         isContactModalOpen,
         setIsContactModalOpen,
+        isCustomerAccountOpen,
+        setIsCustomerAccountOpen,
+        customerAccountTab,
+        setCustomerAccountTab,
+        openCustomerAccount,
         verifyOrderCoDPayment,
         verifyRidePayment,
         sendReceiptNotification,
+        authToken,
+        setAuthToken,
+        systemStatus,
+        paymentRecords,
+        paymentEvents,
+        auditLogs,
+        refreshSystemData,
+        initializeOrderPayment,
+        verifyOrderPayment,
+        refundPaymentRecord,
         vtuConfig,
         vtuDataPlans,
         vtuTransactions,

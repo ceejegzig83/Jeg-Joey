@@ -105,45 +105,53 @@ export const Footer: React.FC = () => {
           {/* Business Hubs Navigation */}
           <div className="space-y-3">
             <h5 className="font-bold text-white text-xs uppercase tracking-wider text-amber-400">
-              Our 5 Business Hubs
+              Our 6 Business Hubs
             </h5>
             <ul className="space-y-2 text-xs">
               <li>
                 <button 
-                  onClick={() => handleDivisionClick('FASHION')}
-                  className="hover:text-amber-300 transition-colors text-left"
+                  onClick={() => handleDivisionClick('VTU')}
+                  className="hover:text-amber-300 transition-colors text-left font-semibold text-purple-300 cursor-pointer"
                 >
-                  👗 Fashion Store & Tailoring
+                  📱 Airtime &amp; Data VTU
+                </button>
+              </li>
+              <li>
+                <button 
+                  onClick={() => handleDivisionClick('FASHION')}
+                  className="hover:text-amber-300 transition-colors text-left cursor-pointer"
+                >
+                  👗 Fashion Store &amp; Tailoring
                 </button>
               </li>
               <li>
                 <button 
                   onClick={() => handleDivisionClick('BAKERY')}
-                  className="hover:text-amber-300 transition-colors text-left"
+                  className="hover:text-amber-300 transition-colors text-left cursor-pointer"
                 >
-                  🥖 Artisanal Bakery & Cakes
+                  🥖 Artisanal Bakery &amp; Cakes
                 </button>
               </li>
               <li>
                 <button 
                   onClick={() => handleDivisionClick('CATERING')}
-                  className="hover:text-amber-300 transition-colors text-left"
+                  className="hover:text-amber-300 transition-colors text-left cursor-pointer"
                 >
-                  🍽️ Catering & Event Feasts
+                  🍽️ Catering &amp; Event Feasts
                 </button>
               </li>
               <li>
                 <button 
                   onClick={() => handleDivisionClick('GROCERY')}
-                  className="hover:text-amber-300 transition-colors text-left"
+                  className="hover:text-amber-300 transition-colors text-left cursor-pointer"
                 >
-                  🛒 Grocery & Supermarket
+                  🛒 Grocery &amp; Supermarket
                 </button>
               </li>
               <li>
                 <button 
                   onClick={() => handleDivisionClick('TRANSPORT')}
-                  className="hover:text-amber-300 transition-colors text-left flex items-center gap-1 font-semibold text-blue-400"
+                  className="hover:text-amber-300 transition-colors text-left flex items-center gap-1 font-semibold text-blue-400 cursor-pointer"
                 >
                   <Car className="w-3.5 h-3.5" /> Kogi Ride-Hailing (Keke / Car)
                 </button>

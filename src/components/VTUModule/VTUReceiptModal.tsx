@@ -56,7 +56,14 @@ export const VTUReceiptModal: React.FC = () => {
         `--------------------------------\n` +
         `Okene, Kogi State • Helpline: ${businessInfo.phone}`
     );
-    window.open(`https://wa.me/?text=${text}`, '_blank');
+    const url = `https://wa.me/?text=${text}`;
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const getStatusBadge = () => {

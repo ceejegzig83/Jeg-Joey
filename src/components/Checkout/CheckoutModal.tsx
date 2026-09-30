@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { BUSINESS_INFO } from '../../data/mockData';
 import { PaymentMethod } from '../../types';
+import { validateNigerianPhone } from '../../utils/nigerianPhone';
 import { 
   CreditCard, 
   X, 
@@ -29,6 +30,9 @@ export const CheckoutModal: React.FC = () => {
     cartTotal, 
     isCoDAllowedInCart, 
     createOrder, 
+    initializeOrderPayment,
+    verifyOrderPayment,
+    systemStatus,
     userProfile, 
     setActiveInvoice,
     showToast 
@@ -49,6 +53,7 @@ export const CheckoutModal: React.FC = () => {
   const [gatewayProvider, setGatewayProvider] = useState<'PAYSTACK' | 'FLUTTERWAVE'>('PAYSTACK');
   const [activeOnlineTab, setActiveOnlineTab] = useState<'CARD' | 'BANK_TRANSFER' | 'USSD'>('CARD');
   const [cardBrand, setCardBrand] = useState<'VERVE' | 'MASTERCARD' | 'VISA'>('VERVE');
+  const [testPaymentOutcome, setTestPaymentOutcome] = useState<'SUCCESS' | 'FAILED' | 'ABANDONED'>('SUCCESS');
   
   // Card inputs
   const [cardNumber, setCardNumber] = useState('5061 0920 1492 8401');
@@ -67,23 +72,72 @@ export const CheckoutModal: React.FC = () => {
 
   if (!isCheckoutOpen) return null;
 
-  const handlePlaceOrder = (e: React.FormEvent) => {
+  const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!customerName || !customerPhone || !customerAddress) {
+    if (cart.length === 0) {
+      showToast('Your cart is empty. Add items before checking out.', 'error');
+      return;
+    }
+
+    if (!customerName.trim() || !customerPhone.trim() || !customerAddress.trim()) {
       showToast('Please provide your full name, phone number, and delivery address', 'error');
       return;
     }
 
+    const phoneCheck = validateNigerianPhone(customerPhone);
+    if (!phoneCheck.isValid) {
+      showToast(phoneCheck.error || 'Please enter a valid 11-digit Nigerian phone number', 'error', 'Invalid Phone Number');
+      return;
+    }
+
+    if (
+      (selectedMethod === 'PAYSTACK_CARD' || selectedMethod === 'FLUTTERWAVE_CARD') &&
+      activeOnlineTab === 'CARD'
+    ) {
+      if (!cardNumber.trim() || cardNumber.replace(/\s+/g, '').length < 12 || !cardExpiry.trim() || !cardCvv.trim()) {
+        showToast('Please enter valid debit card number, expiry date, and CVV.', 'error', 'Incomplete Card Details');
+        return;
+      }
+    }
+
     setIsSubmitting(true);
 
-    setTimeout(() => {
-      setIsSubmitting(false);
+    try {
+      // Cash on Delivery Flow
+      if (selectedMethod === 'CASH_ON_DELIVERY') {
+        const newOrder = createOrder({
+          customerName: customerName.trim(),
+          customerPhone: phoneCheck.normalized,
+          customerEmail: userProfile.email,
+          customerAddress: customerAddress.trim(),
+          deliveryArea: selectedDeliveryZone.name,
+          division: 'MULTI',
+          items: cart,
+          subtotal: cartSubtotal,
+          deliveryFee: selectedDeliveryZone.fee,
+          discount: 0,
+          tax: 0,
+          total: cartTotal,
+          paymentMethod: selectedMethod,
+          paymentStatus: 'PENDING',
+          orderStatus: 'PLACED',
+          notes: orderNotes,
+          estimatedDeliveryTime: selectedDeliveryZone.time
+        });
+        setIsSubmitting(false);
+        setIsCheckoutOpen(false);
+        setActiveInvoice(newOrder);
+        return;
+      }
 
-      const newOrder = createOrder({
-        customerName,
-        customerPhone,
-        customerAddress,
+      // Online Gateway Flow (Paystack / Flutterwave / Bank Transfer / USSD)
+      // Step 1: Create Order in PENDING state (Inventory is NOT deducted until server verifies payment!)
+      const pendingOrder = createOrder({
+        customerName: customerName.trim(),
+        customerPhone: phoneCheck.normalized,
+        customerEmail: userProfile.email,
+        customerAddress: customerAddress.trim(),
         deliveryArea: selectedDeliveryZone.name,
         division: 'MULTI',
         items: cart,
@@ -93,15 +147,54 @@ export const CheckoutModal: React.FC = () => {
         tax: 0,
         total: cartTotal,
         paymentMethod: selectedMethod,
-        paymentStatus: selectedMethod === 'CASH_ON_DELIVERY' ? 'PENDING' : 'PAID',
-        orderStatus: 'PROCESSING',
+        paymentStatus: 'PENDING',
+        orderStatus: 'PENDING',
         notes: orderNotes,
         estimatedDeliveryTime: selectedDeliveryZone.time
       });
 
-      setIsCheckoutOpen(false);
-      setActiveInvoice(newOrder);
-    }, 1600);
+      // Step 2: Initialize Paystack transaction on the backend (Server validates amount from DB)
+      const initRes = await initializeOrderPayment({
+        entityType: 'ORDER',
+        entityId: pendingOrder.id,
+        channel: selectedMethod,
+        customerEmail: userProfile.email || 'customer@flourishdestiny.ng',
+        customerPhone: phoneCheck.normalized,
+        idempotencyKey: `chk-${pendingOrder.id}`
+      });
+
+      if (!initRes.success || !initRes.reference) {
+        setIsSubmitting(false);
+        showToast(initRes.error || 'Could not initialize payment gateway.', 'error', 'Gateway Error');
+        return;
+      }
+
+      // Step 3: Verify Payment on the Backend Server
+      const verifyRes = await verifyOrderPayment({
+        reference: initRes.reference,
+        simulatedOutcome: testPaymentOutcome
+      });
+
+      setIsSubmitting(false);
+
+      if (verifyRes.success) {
+        setIsCheckoutOpen(false);
+        setActiveInvoice(
+          verifyRes.order || {
+            ...pendingOrder,
+            paymentStatus: 'PAID',
+            paymentReference: initRes.reference,
+            orderStatus: 'CONFIRMED'
+          }
+        );
+      } else {
+        // Payment failed or was abandoned: Order remains PENDING in Customer Account & Inventory is untouched
+        setIsCheckoutOpen(false);
+      }
+    } catch {
+      setIsSubmitting(false);
+      showToast('An unexpected error occurred during checkout verification.', 'error');
+    }
   };
 
   return (
@@ -436,6 +529,41 @@ export const CheckoutModal: React.FC = () => {
                       </div>
                       <div className="text-[11px] text-stone-500 text-center">
                         GTBank, Zenith (*966#), First Bank (*894#), Access (*901#) supported.
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Server-Side Paystack Verification Mode & QA Simulator */}
+                  {(!systemStatus || systemStatus.paystack.mode === 'TEST_MODE') && (
+                    <div className="pt-2 border-t border-stone-200 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                      <span className="text-stone-500 font-semibold">
+                        Paystack Sandbox Verification Outcome:
+                      </span>
+                      <div className="flex items-center gap-1">
+                        {(
+                          [
+                            { id: 'SUCCESS', label: '✓ Simulate Verified Success' },
+                            { id: 'FAILED', label: '✕ Simulate Declined' },
+                            { id: 'ABANDONED', label: '⏳ Abandoned' }
+                          ] as const
+                        ).map((opt) => (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => setTestPaymentOutcome(opt.id)}
+                            className={`px-2 py-1 rounded-md font-bold transition-all cursor-pointer ${
+                              testPaymentOutcome === opt.id
+                                ? opt.id === 'SUCCESS'
+                                  ? 'bg-emerald-600 text-white'
+                                  : opt.id === 'FAILED'
+                                  ? 'bg-rose-600 text-white'
+                                  : 'bg-amber-500 text-stone-950'
+                                : 'bg-stone-200 text-stone-600 hover:text-stone-900'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
                       </div>
                     </div>
                   )}

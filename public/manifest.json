@@ -1,0 +1,20 @@
+{
+  "name": "FLOURISH DESTINY COLLECTION — Nigerian Super App",
+  "short_name": "Flourish Super App",
+  "description": "Shop Fashion & Tailoring, Order Bakery & Catering, Buy Farm Grocery, Book Kogi Ride (Keke & Car), and Recharge Airtime & Mobile Data in Okene & Kogi State.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#1c1917",
+  "theme_color": "#1c1917",
+  "categories": ["shopping", "food", "travel", "utilities", "lifestyle"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
