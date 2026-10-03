@@ -68,20 +68,28 @@ function resolveActor(req: express.Request): {
 function buildSystemStatus(): SystemArchitectureStatus {
   const vtuProvider = createVTUProvider(db.getVTUDataPlans());
   const isLivePaystack = paystackService.isLiveConfigured();
-  const isLiveDb = db.isPostgresConfigured();
+  const isLiveDb = db.isPostgresLiveConnected();
+  const dbStatus = db.getDatabaseStatus();
 
   return {
     environment: process.env.NODE_ENV || 'development',
     operationalMode: isLivePaystack || isLiveDb ? 'PRODUCTION_MODE' : 'DEMO_MODE',
     database: {
       mode: db.getDatabaseMode(),
-      connected: true,
-      engine: isLiveDb ? 'PostgreSQL 15+ (Connection Pool)' : 'Relational Snapshot Engine (Demo Persistent)',
+      status: dbStatus,
+      connected: dbStatus !== 'DATABASE_ERROR',
+      engine: isLiveDb
+        ? 'PostgreSQL 15+ (Connection Pool)'
+        : dbStatus === 'DATABASE_ERROR'
+        ? 'PostgreSQL Unreachable — Safe Demo Persistent Fallback'
+        : 'Relational Snapshot Engine (Demo Persistent)',
+      error: db.getDatabaseError(),
       entitiesCount: db.getEntitiesCount()
     },
     paystack: {
       mode: paystackService.getMode(),
       configured: isLivePaystack,
+      sandboxStatus: paystackService.getSandboxStatus(),
       webhookEndpoint: '/api/payments/webhook'
     },
     vtu: {
@@ -131,17 +139,23 @@ async function startServer() {
   // ==========================================================================
   // 1. HEALTH & SYSTEM ARCHITECTURE STATUS (Requirement 20)
   // ==========================================================================
-  app.get('/api/health', (_req, res) => {
+  app.get('/api/health', async (_req, res) => {
+    if (db.isPostgresConfigured()) {
+      await db.verifyPostgresConnection();
+    }
     const status = buildSystemStatus();
     res.json({
-      ok: true,
+      ok: status.database.status !== 'DATABASE_ERROR',
       service: 'FLOURISH DESTINY COLLECTION — SUPER APP API',
       timestamp: new Date().toISOString(),
       status
     });
   });
 
-  app.get('/api/system/status', (_req, res) => {
+  app.get('/api/system/status', async (_req, res) => {
+    if (db.isPostgresConfigured()) {
+      await db.verifyPostgresConnection();
+    }
     res.json({
       success: true,
       status: buildSystemStatus()
@@ -357,28 +371,32 @@ async function startServer() {
       verifyPassword(String(password || ''), dbUser.passwordHash, dbUser.passwordSalt);
 
     if (isEnvAdminMatch || isDbAdminMatch) {
+      const resolvedRole: 'ADMIN' | 'SUPER_ADMIN' = isEnvAdminMatch
+        ? 'SUPER_ADMIN'
+        : (dbUser?.role as 'ADMIN' | 'SUPER_ADMIN') || 'ADMIN';
+
       const token = signJwtToken({
         userId: dbUser?.id || 'usr-admin-001',
         email: dbUser?.email || expectedEmail,
         phone: dbUser?.phone || '09162723865',
         name: dbUser?.name || 'HQ Master Administrator',
-        role: 'SUPER_ADMIN'
+        role: resolvedRole
       });
 
       db.recordAuditLog({
         actorId: dbUser?.id || 'usr-admin-001',
         actorName: dbUser?.name || 'HQ Master Administrator',
-        actorRole: 'SUPER_ADMIN',
+        actorRole: resolvedRole,
         action: 'ADMIN_LOGIN_SUCCESS',
         entityType: 'AUTH',
-        entityId: 'adm-001',
-        summary: `Administrator authenticated via HQ Admin Portal (${normalizedUser}).`,
+        entityId: dbUser?.id || 'adm-001',
+        summary: `Administrator (${resolvedRole}) authenticated via HQ Admin Portal (${normalizedUser}).`,
         ipAddress: req.socket.remoteAddress
       });
 
       return res.json({
         success: true,
-        role: 'SUPER_ADMIN',
+        role: resolvedRole,
         token,
         authenticatedAt: new Date().toISOString()
       });
@@ -406,6 +424,13 @@ async function startServer() {
   // ==========================================================================
   app.post('/api/payments/initialize', paymentRateLimiter, async (req, res) => {
     try {
+      if (req.authUser?.role === 'DRIVER') {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: Driver accounts cannot initialize customer store payments.'
+        });
+      }
+
       const {
         entityType = 'ORDER',
         entityId,
@@ -418,13 +443,31 @@ async function startServer() {
         amount // Browser-submitted amount is checked for tampering, NEVER trusted
       } = req.body || {};
 
+      const resolvedEntityId = String(entityId || orderId || '');
+
+      // Enforce customer ownership isolation when authenticated as CUSTOMER
+      if (req.authUser?.role === 'CUSTOMER' && entityType === 'ORDER' && resolvedEntityId) {
+        const ord = db.getOrderByIdOrNumber(resolvedEntityId);
+        if (
+          ord &&
+          ord.customerId &&
+          ord.customerId !== req.authUser.userId &&
+          ord.customerPhone !== req.authUser.phone
+        ) {
+          return res.status(403).json({
+            success: false,
+            error: 'Forbidden: You cannot initialize payment for another customer order.'
+          });
+        }
+      }
+
       const result = await paystackService.initializeTransaction({
         entityType: entityType as PayableEntityType,
-        entityId: String(entityId || orderId || ''),
+        entityId: resolvedEntityId,
         orderId: orderId ? String(orderId) : undefined,
         channel,
-        customerEmail,
-        customerPhone,
+        customerEmail: customerEmail || req.authUser?.email,
+        customerPhone: customerPhone || req.authUser?.phone,
         customerId: req.authUser?.userId,
         idempotencyKey,
         callbackUrl,
@@ -449,9 +492,17 @@ async function startServer() {
       const simulatedOutcome =
         (req.query.simulatedOutcome as 'SUCCESS' | 'FAILED' | 'ABANDONED' | undefined) ||
         'SUCCESS';
+      const simulatedAmountKobo =
+        req.query.simulatedAmountKobo !== undefined
+          ? Number(req.query.simulatedAmountKobo)
+          : undefined;
+      const simulatedCurrency = req.query.simulatedCurrency as string | undefined;
+
       const result = await paystackService.verifyTransaction({
         reference: req.params.reference,
-        simulatedOutcome
+        simulatedOutcome,
+        simulatedAmountKobo,
+        simulatedCurrency
       });
       return res.status(result.statusCode || 200).json(result);
     } catch {
@@ -464,10 +515,18 @@ async function startServer() {
 
   app.post('/api/payments/verify', async (req, res) => {
     try {
-      const { reference, simulatedOutcome = 'SUCCESS' } = req.body || {};
+      const {
+        reference,
+        simulatedOutcome = 'SUCCESS',
+        simulatedAmountKobo,
+        simulatedCurrency
+      } = req.body || {};
       const result = await paystackService.verifyTransaction({
         reference: String(reference || ''),
-        simulatedOutcome
+        simulatedOutcome,
+        simulatedAmountKobo:
+          simulatedAmountKobo !== undefined ? Number(simulatedAmountKobo) : undefined,
+        simulatedCurrency
       });
       return res.status(result.statusCode || 200).json(result);
     } catch {
@@ -501,12 +560,29 @@ async function startServer() {
     }
   });
 
-  app.get('/api/payments', (_req, res) => {
+  app.get('/api/payments', requireRole(['ADMIN', 'SUPER_ADMIN']), (_req, res) => {
     res.json({
       success: true,
       mode: paystackService.getMode(),
       payments: db.getPayments(),
       events: db.getPaymentEvents().slice(0, 100)
+    });
+  });
+
+  app.get('/api/customer/payments', requireRole(['CUSTOMER']), (req, res) => {
+    const auth = req.authUser!;
+    const myPayments = db
+      .getPayments()
+      .filter(
+        (p) =>
+          p.customerId === auth.userId ||
+          p.customerPhone === auth.phone ||
+          p.customerEmail.toLowerCase() === auth.email.toLowerCase()
+      );
+    res.json({
+      success: true,
+      mode: paystackService.getMode(),
+      payments: myPayments
     });
   });
 
@@ -612,23 +688,74 @@ async function startServer() {
   // 5. UNIFIED STORE ORDERS API (Requirements 8, 10, 11, 12)
   // ==========================================================================
   app.get('/api/orders', (req, res) => {
+    if (req.authUser?.role === 'DRIVER') {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden: Drivers cannot access customer store orders.'
+      });
+    }
+
+    if (req.authUser?.role === 'CUSTOMER') {
+      const auth = req.authUser;
+      const myOrders = db
+        .getOrders()
+        .filter(
+          (o) =>
+            o.customerId === auth.userId ||
+            o.customerPhone === auth.phone ||
+            (o.customerEmail && o.customerEmail.toLowerCase() === auth.email.toLowerCase())
+        );
+      return res.json({
+        success: true,
+        orders: myOrders
+      });
+    }
+
     const phone = req.query.phone as string | undefined;
-    res.json({
+    return res.json({
       success: true,
       orders: db.getOrders(phone)
     });
   });
 
   app.get('/api/orders/:id', (req, res) => {
+    if (req.authUser?.role === 'DRIVER') {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden: Drivers cannot access customer store orders.'
+      });
+    }
+
     const order = db.getOrderByIdOrNumber(req.params.id);
     if (!order) {
       return res.status(404).json({ success: false, error: 'Order not found.' });
     }
+
+    if (req.authUser?.role === 'CUSTOMER') {
+      const auth = req.authUser;
+      const isOwner =
+        order.customerId === auth.userId ||
+        order.customerPhone === auth.phone ||
+        (order.customerEmail && order.customerEmail.toLowerCase() === auth.email.toLowerCase());
+      if (!isOwner) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: Customer data isolation prevents accessing another customer order.'
+        });
+      }
+    }
+
     return res.json({ success: true, order });
   });
 
   app.post('/api/orders', (req, res) => {
     try {
+      if (req.authUser?.role === 'DRIVER') {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: Driver role cannot create customer store orders.'
+        });
+      }
       const {
         id,
         orderNumber,
@@ -824,16 +951,34 @@ async function startServer() {
     res.json({ success: true, drivers: db.getDrivers() });
   });
 
-  app.post('/api/drivers/:id/toggle-online', (req, res) => {
-    const driver = db.toggleDriverOnline(req.params.id);
-    if (!driver) {
-      return res.status(404).json({ success: false, error: 'Driver not found.' });
+  app.post(
+    '/api/drivers/:id/toggle-online',
+    requireRole(['DRIVER', 'ADMIN', 'SUPER_ADMIN']),
+    (req, res) => {
+      if (
+        req.authUser?.role === 'DRIVER' &&
+        req.authUser.driverId &&
+        req.authUser.driverId !== req.params.id
+      ) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: Drivers can only toggle their own online availability.'
+        });
+      }
+
+      const driver = db.toggleDriverOnline(req.params.id);
+      if (!driver) {
+        return res.status(404).json({ success: false, error: 'Driver not found.' });
+      }
+      return res.json({ success: true, driver, drivers: db.getDrivers() });
     }
-    return res.json({ success: true, driver, drivers: db.getDrivers() });
-  });
+  );
 
   app.get('/api/rides', (req, res) => {
-    const driverId = req.query.driverId as string | undefined;
+    const driverId =
+      req.authUser?.role === 'DRIVER'
+        ? req.authUser.driverId || (req.query.driverId as string | undefined)
+        : (req.query.driverId as string | undefined);
     res.json({ success: true, rides: db.getRides(driverId) });
   });
 
@@ -842,18 +987,24 @@ async function startServer() {
     res.status(201).json({ success: true, ride });
   });
 
-  app.patch('/api/rides/:id/status', (req, res) => {
-    const { status, driverId } = req.body || {};
-    const actorDriverId = req.authUser?.driverId || driverId;
-    const result = db.updateRideStatus(req.params.id, status, actorDriverId);
-    if (result.error || !result.ride) {
-      return res.status(400).json({
-        success: false,
-        error: result.error || 'Unable to update ride status.'
-      });
+  app.patch(
+    '/api/rides/:id/status',
+    requireRole(['DRIVER', 'ADMIN', 'SUPER_ADMIN']),
+    (req, res) => {
+      const { status, driverId } = req.body || {};
+      const actorDriverId =
+        req.authUser?.role === 'DRIVER' ? req.authUser.driverId || driverId : driverId;
+      const result = db.updateRideStatus(req.params.id, status, actorDriverId);
+      if (result.error || !result.ride) {
+        const statusCode = result.error?.startsWith('Forbidden:') ? 403 : 400;
+        return res.status(statusCode).json({
+          success: false,
+          error: result.error || 'Unable to update ride status.'
+        });
+      }
+      return res.json({ success: true, ride: result.ride });
     }
-    return res.json({ success: true, ride: result.ride });
-  });
+  );
 
   app.post('/api/rides/:id/verify-payment', requireRole(['ADMIN', 'SUPER_ADMIN']), (req, res) => {
     const verifiedBy = req.body?.verifiedBy || 'HQ Transport Admin';
@@ -872,18 +1023,28 @@ async function startServer() {
     res.json({ success: true, notifications: db.getNotifications() });
   });
 
-  app.get('/api/admin/audit-logs', (_req, res) => {
+  app.get('/api/admin/audit-logs', requireRole(['ADMIN', 'SUPER_ADMIN']), (_req, res) => {
     res.json({
       success: true,
       auditLogs: db.getAuditLogs(150)
     });
   });
 
-  app.post('/api/admin/reset-demo-db', requireRole(['ADMIN', 'SUPER_ADMIN']), (req, res) => {
+  // Strictly SUPER_ADMIN-only operations (ADMIN is rejected with 403 Forbidden)
+  app.post('/api/admin/reset-demo-db', requireRole(['SUPER_ADMIN']), (req, res) => {
     db.resetDemoDatabase(resolveActor(req));
     res.json({
       success: true,
       status: buildSystemStatus()
+    });
+  });
+
+  app.get('/api/admin/super/security-overview', requireRole(['SUPER_ADMIN']), (_req, res) => {
+    res.json({
+      success: true,
+      superAdminVerified: true,
+      status: buildSystemStatus(),
+      recentAuditLogs: db.getAuditLogs(25)
     });
   });
 
@@ -1352,10 +1513,24 @@ async function startServer() {
   });
 
   app.get('/api/vtu/transactions', (req, res) => {
+    if (req.authUser?.role === 'DRIVER') {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden: Driver accounts cannot access VTU transaction logs.'
+      });
+    }
+
     const { phone, type, status, network } = req.query;
     let list = [...db.getVTUTransactions()];
 
-    if (phone && typeof phone === 'string' && phone.trim() !== '') {
+    if (req.authUser?.role === 'CUSTOMER') {
+      const auth = req.authUser;
+      list = list.filter(
+        (t) =>
+          t.phoneNumber === auth.phone ||
+          (t.customerEmail && t.customerEmail.toLowerCase() === auth.email.toLowerCase())
+      );
+    } else if (phone && typeof phone === 'string' && phone.trim() !== '') {
       const clean = phone.trim();
       list = list.filter((t) => t.phoneNumber.includes(clean));
     }
@@ -1369,23 +1544,44 @@ async function startServer() {
       list = list.filter((t) => t.network === network);
     }
 
-    res.json({
+    return res.json({
       success: true,
       transactions: list
     });
   });
 
   app.get('/api/vtu/transactions/:id', (req, res) => {
+    if (req.authUser?.role === 'DRIVER') {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden: Driver accounts cannot access VTU transaction logs.'
+      });
+    }
+
     const tx = db
       .getVTUTransactions()
       .find((t) => t.id === req.params.id || t.reference === req.params.id);
     if (!tx) {
       return res.status(404).json({ success: false, error: 'Transaction not found' });
     }
+
+    if (req.authUser?.role === 'CUSTOMER') {
+      const auth = req.authUser;
+      const isOwner =
+        tx.phoneNumber === auth.phone ||
+        (tx.customerEmail && tx.customerEmail.toLowerCase() === auth.email.toLowerCase());
+      if (!isOwner) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: Customer data isolation prevents viewing another customer VTU receipt.'
+        });
+      }
+    }
+
     return res.json({ success: true, transaction: tx });
   });
 
-  app.post('/api/vtu/admin/plans', (req, res) => {
+  app.post('/api/vtu/admin/plans', requireRole(['ADMIN', 'SUPER_ADMIN']), (req, res) => {
     const plan: VTUDataPlan = req.body;
     if (!plan.planId || !plan.network || !plan.name) {
       return res.status(400).json({ success: false, error: 'Missing required plan fields.' });
@@ -1410,7 +1606,7 @@ async function startServer() {
     return res.json({ success: true, plan, plans });
   });
 
-  app.delete('/api/vtu/admin/plans/:planId', (req, res) => {
+  app.delete('/api/vtu/admin/plans/:planId', requireRole(['ADMIN', 'SUPER_ADMIN']), (req, res) => {
     const nextPlans = db.getVTUDataPlans().filter((p) => p.planId !== req.params.planId);
     db.setVTUDataPlans(nextPlans);
     db.recordAuditLog({
@@ -1425,7 +1621,7 @@ async function startServer() {
     return res.json({ success: true, plans: nextPlans });
   });
 
-  app.post('/api/vtu/admin/settings', (req, res) => {
+  app.post('/api/vtu/admin/settings', requireRole(['ADMIN', 'SUPER_ADMIN']), (req, res) => {
     const updated = {
       ...db.getVTUConfig(),
       ...req.body
@@ -1443,7 +1639,10 @@ async function startServer() {
     return res.json({ success: true, config: updated });
   });
 
-  app.post('/api/vtu/admin/transactions/:id/action', async (req, res) => {
+  app.post(
+    '/api/vtu/admin/transactions/:id/action',
+    requireRole(['ADMIN', 'SUPER_ADMIN']),
+    async (req, res) => {
     const { action } = req.body || {};
     const vtuTransactions = [...db.getVTUTransactions()];
     const txIndex = vtuTransactions.findIndex((t) => t.id === req.params.id);

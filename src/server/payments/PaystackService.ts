@@ -7,6 +7,7 @@ import {
   Order
 } from '../../types/index.ts';
 import { db } from '../db/DatabaseService.ts';
+import { getJwtSecret } from '../security/AuthService.ts';
 
 export interface InitializePaymentInput {
   entityType?: PayableEntityType;
@@ -43,6 +44,8 @@ export interface InitializePaymentResult {
 export interface VerifyPaymentInput {
   reference: string;
   simulatedOutcome?: 'SUCCESS' | 'FAILED' | 'ABANDONED';
+  simulatedAmountKobo?: number;
+  simulatedCurrency?: string;
 }
 
 export interface VerifyPaymentResult {
@@ -68,6 +71,17 @@ export class PaystackService {
   public isLiveConfigured(): boolean {
     const secret = this.getSecretKey();
     return Boolean(secret && (secret.startsWith('sk_live_') || secret.startsWith('sk_test_')));
+  }
+
+  public getSandboxStatus(): string {
+    const secret = this.getSecretKey();
+    if (secret.startsWith('sk_test_')) return 'PAYSTACK_SANDBOX_CONFIGURED';
+    if (secret.startsWith('sk_live_')) return 'PAYSTACK_LIVE_CONFIGURED';
+    return 'PAYSTACK_SANDBOX_BLOCKED_MISSING_SECRET_KEY';
+  }
+
+  public getWebhookSecret(): string {
+    return this.getSecretKey() || getJwtSecret();
   }
 
   public getMode(): 'LIVE_MODE' | 'TEST_MODE' {
@@ -182,7 +196,7 @@ export class PaystackService {
     let authorizationUrl: string | undefined;
     let accessCode: string | undefined;
 
-    // 5. Initialize with Live Paystack API if PAYSTACK_SECRET_KEY is present
+    // 5. Initialize with Live/Sandbox Paystack API if PAYSTACK_SECRET_KEY is present
     if (this.isLiveConfigured()) {
       try {
         const paystackRes = await fetch('https://api.paystack.co/transaction/initialize', {
@@ -207,16 +221,28 @@ export class PaystackService {
           })
         });
         const data = await paystackRes.json();
-        if (data && data.status && data.data) {
+        if (paystackRes.ok && data && data.status && data.data?.authorization_url) {
           authorizationUrl = data.data.authorization_url;
           accessCode = data.data.access_code;
+        } else {
+          return {
+            success: false,
+            mode,
+            statusCode: 502,
+            error:
+              data?.message ||
+              'Paystack API rejected transaction initialization. Verify PAYSTACK_SECRET_KEY.'
+          };
         }
-      } catch (err) {
-        console.error('[PaystackService] Live initialization error, using interactive fallback:', err);
+      } catch (err: any) {
+        return {
+          success: false,
+          mode,
+          statusCode: 502,
+          error: `Paystack API network error during initialization: ${err?.message || 'Unknown error'}`
+        };
       }
-    }
-
-    if (!authorizationUrl) {
+    } else {
       authorizationUrl = `/checkout/paystack-verify?reference=${encodeURIComponent(reference)}`;
       accessCode = `ACC_${reference.slice(-10)}`;
     }
@@ -285,6 +311,18 @@ export class PaystackService {
       };
     }
 
+    // Validate entity correlation exists in DB
+    const entityInfo = db.resolvePayableEntityServerSide(payment.entityType, payment.entityId);
+    if (!entityInfo || !entityInfo.exists) {
+      return {
+        success: false,
+        mode,
+        statusCode: 404,
+        message: `Correlated ${payment.entityType} (${payment.entityId}) not found for payment ${payment.reference}.`,
+        error: `Correlated ${payment.entityType} (${payment.entityId}) not found.`
+      };
+    }
+
     // Idempotency: if already SUCCESS, return immediately without re-deducting inventory
     if (payment.status === 'SUCCESS') {
       const order =
@@ -333,12 +371,70 @@ export class PaystackService {
         const gatewayStatus = String(txData.status || '').toLowerCase();
         const gatewayAmountKobo = Number(txData.amount || 0);
         const gatewayCurrency = String(txData.currency || 'NGN').toUpperCase();
+        const gatewayReference = String(txData.reference || '');
         gatewayTxId = String(txData.id || payment.reference);
 
+        if (gatewayReference && gatewayReference !== payment.reference) {
+          db.recordAuditLog({
+            actorId: 'PAYSTACK_VERIFY',
+            actorName: 'Paystack Verification Guard',
+            actorRole: 'SYSTEM',
+            action: 'PAYMENT_VERIFY_REFERENCE_MISMATCH',
+            entityType: 'PAYMENT',
+            entityId: payment.reference,
+            summary: `Reference mismatch: expected ${payment.reference}, received ${gatewayReference}`
+          });
+          return {
+            success: false,
+            mode,
+            payment,
+            statusCode: 400,
+            message: 'Transaction reference mismatch.',
+            error: 'Transaction reference mismatch.'
+          };
+        }
+
         if (gatewayCurrency !== 'NGN') {
-          targetStatus = 'FAILED';
-          summary = `Currency mismatch: expected NGN, received ${gatewayCurrency}`;
-        } else if (gatewayStatus === 'success' && gatewayAmountKobo >= payment.amountKobo) {
+          db.recordAuditLog({
+            actorId: 'PAYSTACK_VERIFY',
+            actorName: 'Paystack Verification Guard',
+            actorRole: 'SYSTEM',
+            action: 'PAYMENT_VERIFY_CURRENCY_MISMATCH',
+            entityType: 'PAYMENT',
+            entityId: payment.reference,
+            summary: `Currency mismatch: expected NGN, received ${gatewayCurrency}`
+          });
+          return {
+            success: false,
+            mode,
+            payment,
+            statusCode: 400,
+            message: `Currency mismatch: expected NGN, received ${gatewayCurrency}`,
+            error: `Currency mismatch: expected NGN, received ${gatewayCurrency}`
+          };
+        }
+
+        if (gatewayAmountKobo !== payment.amountKobo) {
+          db.recordAuditLog({
+            actorId: 'PAYSTACK_VERIFY',
+            actorName: 'Paystack Verification Guard',
+            actorRole: 'SYSTEM',
+            action: 'PAYMENT_VERIFY_AMOUNT_MISMATCH',
+            entityType: 'PAYMENT',
+            entityId: payment.reference,
+            summary: `Amount mismatch on verify: expected ${payment.amountKobo} kobo, received ${gatewayAmountKobo} kobo.`
+          });
+          return {
+            success: false,
+            mode,
+            payment,
+            statusCode: 400,
+            message: `Amount mismatch: expected ${payment.amountKobo} kobo, received ${gatewayAmountKobo} kobo.`,
+            error: `Amount mismatch: expected ${payment.amountKobo} kobo, received ${gatewayAmountKobo} kobo.`
+          };
+        }
+
+        if (gatewayStatus === 'success') {
           targetStatus = 'SUCCESS';
           summary = `Verified via Paystack Live API: ₦${payment.amountNaira.toLocaleString()} (${gatewayAmountKobo} kobo)`;
         } else if (gatewayStatus === 'abandoned') {
@@ -360,6 +456,52 @@ export class PaystackService {
       }
     } else {
       // TEST / DEMO PAYMENT MODE Verification
+      if (
+        input.simulatedCurrency !== undefined &&
+        String(input.simulatedCurrency).toUpperCase() !== 'NGN'
+      ) {
+        db.recordAuditLog({
+          actorId: 'DEMO_VERIFIER',
+          actorName: 'Payment Verification Guard',
+          actorRole: 'SYSTEM',
+          action: 'PAYMENT_VERIFY_CURRENCY_MISMATCH',
+          entityType: 'PAYMENT',
+          entityId: payment.reference,
+          summary: `Blocked verification due to currency mismatch: expected NGN, received ${input.simulatedCurrency}`
+        });
+        return {
+          success: false,
+          mode,
+          payment,
+          statusCode: 400,
+          message: `Currency mismatch: expected NGN, received ${input.simulatedCurrency}.`,
+          error: `Currency mismatch: expected NGN, received ${input.simulatedCurrency}.`
+        };
+      }
+
+      if (
+        input.simulatedAmountKobo !== undefined &&
+        Number(input.simulatedAmountKobo) !== payment.amountKobo
+      ) {
+        db.recordAuditLog({
+          actorId: 'DEMO_VERIFIER',
+          actorName: 'Payment Verification Guard',
+          actorRole: 'SYSTEM',
+          action: 'PAYMENT_VERIFY_AMOUNT_MISMATCH',
+          entityType: 'PAYMENT',
+          entityId: payment.reference,
+          summary: `Blocked verification due to amount mismatch: expected ${payment.amountKobo} kobo, received ${input.simulatedAmountKobo} kobo.`
+        });
+        return {
+          success: false,
+          mode,
+          payment,
+          statusCode: 400,
+          message: `Amount mismatch: expected ${payment.amountKobo} kobo, received ${input.simulatedAmountKobo} kobo.`,
+          error: `Amount mismatch: expected ${payment.amountKobo} kobo, received ${input.simulatedAmountKobo} kobo.`
+        };
+      }
+
       const outcome = input.simulatedOutcome || 'SUCCESS';
       if (outcome === 'SUCCESS') {
         targetStatus = 'SUCCESS';
@@ -410,17 +552,13 @@ export class PaystackService {
 
   /**
    * Requirement 9: Paystack Webhook HMAC SHA512 Signature Verification
+   * Strictly requires a valid x-paystack-signature header. Missing or invalid signatures are rejected.
    */
   public verifyWebhookSignature(rawPayload: string, signatureHeader?: string): boolean {
-    const secret = this.getSecretKey();
-    if (!secret) {
-      // In TEST_MODE without a configured PAYSTACK_SECRET_KEY, allow explicit test webhook simulation
-      // if header 'x-fdc-test-webhook' is provided or no secret exists
-      return true;
-    }
-    if (!signatureHeader || typeof signatureHeader !== 'string') {
+    if (!signatureHeader || typeof signatureHeader !== 'string' || !signatureHeader.trim()) {
       return false;
     }
+    const secret = this.getWebhookSecret();
     try {
       const expectedSignature = crypto
         .createHmac('sha512', secret)
@@ -457,12 +595,16 @@ export class PaystackService {
         action: 'WEBHOOK_INVALID_SIGNATURE_REJECTED',
         entityType: 'PAYMENT',
         entityId: params.body?.data?.reference || 'UNKNOWN',
-        summary: 'Rejected Paystack webhook due to invalid x-paystack-signature HMAC SHA512.'
+        summary: params.signatureHeader
+          ? 'Rejected Paystack webhook due to invalid x-paystack-signature HMAC SHA512.'
+          : 'Rejected Paystack webhook due to missing x-paystack-signature header.'
       });
       return {
         accepted: false,
         statusCode: 401,
-        message: 'Invalid Paystack webhook signature.'
+        message: params.signatureHeader
+          ? 'Invalid Paystack webhook signature.'
+          : 'Missing x-paystack-signature header.'
       };
     }
 
@@ -481,7 +623,7 @@ export class PaystackService {
     // Check if this exact eventType + reference was already processed
     const existingEvents = db.getPaymentEvents(reference);
     const alreadyHandled = existingEvents.some(
-      (e) => e.source === 'PAYSTACK_WEBHOOK' && e.eventType === eventType && e.newStatus === 'SUCCESS'
+      (e) => e.source === 'PAYSTACK_WEBHOOK' && e.eventType === eventType
     );
     if (alreadyHandled) {
       return {
@@ -493,33 +635,99 @@ export class PaystackService {
     }
 
     const payment = db.findPaymentByReferenceOrIdempotency(reference);
-    if (payment) {
-      if (eventType === 'charge.success') {
-        const amountKobo = Number(data.amount || payment.amountKobo);
-        if (amountKobo >= payment.amountKobo) {
-          db.transitionPaymentAndFulfillEntity({
-            reference: payment.reference,
-            targetStatus: 'SUCCESS',
-            source: 'PAYSTACK_WEBHOOK',
-            verifiedBy: 'PAYSTACK_WEBHOOK',
-            gatewayTransactionId: String(data.id || reference),
-            eventType,
-            signatureValid: true,
-            payloadSummary: `Webhook charge.success verified (${amountKobo} kobo)`
-          });
-        }
-      } else if (eventType === 'refund.processed') {
-        db.transitionPaymentAndFulfillEntity({
-          reference: payment.reference,
-          targetStatus: 'REFUNDED',
-          source: 'PAYSTACK_WEBHOOK',
-          verifiedBy: 'PAYSTACK_WEBHOOK',
-          gatewayTransactionId: String(data.id || reference),
-          eventType,
-          signatureValid: true,
-          payloadSummary: 'Webhook refund.processed completed'
-        });
+    if (!payment) {
+      return {
+        accepted: true,
+        statusCode: 200,
+        message: `Webhook ${eventType} received for unknown reference ${reference}; ignored safely.`
+      };
+    }
+
+    if (eventType === 'charge.success') {
+      if (payment.status === 'SUCCESS') {
+        return {
+          accepted: true,
+          statusCode: 200,
+          idempotentReplay: true,
+          message: `Payment ${reference} was already verified and fulfilled; duplicate charge.success ignored idempotently.`
+        };
       }
+
+      const webhookAmountKobo = Number(data.amount);
+      const webhookCurrency = String(data.currency || 'NGN').toUpperCase();
+
+      if (
+        !Number.isFinite(webhookAmountKobo) ||
+        webhookAmountKobo !== payment.amountKobo ||
+        webhookCurrency !== 'NGN'
+      ) {
+        db.recordAuditLog({
+          actorId: 'PAYSTACK_WEBHOOK',
+          actorName: 'Paystack Webhook Guard',
+          actorRole: 'WEBHOOK',
+          action: 'WEBHOOK_AMOUNT_MISMATCH_BLOCKED',
+          entityType: 'PAYMENT',
+          entityId: payment.reference,
+          summary: `Blocked charge.success webhook for ${payment.reference}: expected ${payment.amountKobo} kobo (NGN), received ${data.amount} (${webhookCurrency}).`
+        });
+        return {
+          accepted: false,
+          statusCode: 400,
+          message: `Webhook amount or currency mismatch: expected ${payment.amountKobo} kobo NGN, received ${data.amount} ${webhookCurrency}. Fulfillment blocked.`
+        };
+      }
+
+      db.transitionPaymentAndFulfillEntity({
+        reference: payment.reference,
+        targetStatus: 'SUCCESS',
+        source: 'PAYSTACK_WEBHOOK',
+        verifiedBy: 'PAYSTACK_WEBHOOK',
+        gatewayTransactionId: String(data.id || reference),
+        eventType,
+        signatureValid: true,
+        payloadSummary: `Webhook charge.success verified (${webhookAmountKobo} kobo NGN)`
+      });
+    } else if (eventType === 'charge.failed' || eventType === 'paymentrequest.failed') {
+      // Out-of-order guard: if payment is already SUCCESS or REFUNDED, do not revert
+      if (payment.status === 'SUCCESS' || payment.status === 'REFUNDED') {
+        db.recordAuditLog({
+          actorId: 'PAYSTACK_WEBHOOK',
+          actorName: 'Paystack Webhook Guard',
+          actorRole: 'WEBHOOK',
+          action: 'WEBHOOK_OUT_OF_ORDER_IGNORED',
+          entityType: 'PAYMENT',
+          entityId: payment.reference,
+          summary: `Ignored out-of-order ${eventType} webhook because payment ${payment.reference} is already ${payment.status}.`
+        });
+        return {
+          accepted: true,
+          statusCode: 200,
+          idempotentReplay: true,
+          message: `Ignored out-of-order ${eventType} webhook; payment is already ${payment.status}.`
+        };
+      }
+
+      db.transitionPaymentAndFulfillEntity({
+        reference: payment.reference,
+        targetStatus: 'FAILED',
+        source: 'PAYSTACK_WEBHOOK',
+        verifiedBy: 'PAYSTACK_WEBHOOK',
+        gatewayTransactionId: String(data.id || reference),
+        eventType,
+        signatureValid: true,
+        payloadSummary: `Webhook ${eventType} processed: order remains unpaid and stock is not deducted.`
+      });
+    } else if (eventType === 'refund.processed') {
+      db.transitionPaymentAndFulfillEntity({
+        reference: payment.reference,
+        targetStatus: 'REFUNDED',
+        source: 'PAYSTACK_WEBHOOK',
+        verifiedBy: 'PAYSTACK_WEBHOOK',
+        gatewayTransactionId: String(data.id || reference),
+        eventType,
+        signatureValid: true,
+        payloadSummary: 'Webhook refund.processed completed'
+      });
     }
 
     return {

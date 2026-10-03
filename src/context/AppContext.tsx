@@ -566,6 +566,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return headers;
   };
 
+  const getCustomerHeaders = (): Record<string, string> => {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    };
+    if (authToken) {
+      headers.Authorization = `Bearer ${authToken}`;
+    }
+    return headers;
+  };
+
   const setCurrentRole = (role: 'CUSTOMER' | 'ADMIN' | 'DRIVER') => {
     if (role === 'ADMIN') {
       if (isAdminAuthenticated) {
@@ -816,10 +826,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Sync VTU Config, Plans, System Architecture Status, Payments & Audit Logs from Backend API
   const refreshSystemData = async () => {
     try {
+      const adminHeaders = getAdminHeaders();
       const [sysRes, payRes, audRes] = await Promise.all([
         fetch('/api/system/status'),
-        fetch('/api/payments'),
-        fetch('/api/admin/audit-logs')
+        fetch('/api/payments', { headers: adminHeaders }),
+        fetch('/api/admin/audit-logs', { headers: adminHeaders })
       ]);
       if (sysRes.ok) {
         const sysData = await sysRes.json();
@@ -1299,7 +1310,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Sync order creation with backend DatabaseService
     fetch('/api/orders', {
       method: 'POST',
-      headers: getAdminHeaders(),
+      headers: getCustomerHeaders(),
       body: JSON.stringify({
         id: newOrder.id,
         orderNumber: newOrder.orderNumber,
@@ -1328,7 +1339,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const res = await fetch('/api/payments/initialize', {
         method: 'POST',
-        headers: getAdminHeaders(),
+        headers: getCustomerHeaders(),
         body: JSON.stringify({
           entityType: params.entityType || 'ORDER',
           entityId: params.entityId,
@@ -1374,7 +1385,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const res = await fetch('/api/payments/verify', {
         method: 'POST',
-        headers: getAdminHeaders(),
+        headers: getCustomerHeaders(),
         body: JSON.stringify({ reference, simulatedOutcome })
       });
       const data = await res.json();
@@ -1999,7 +2010,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       await fetch('/api/vtu/admin/plans', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAdminHeaders(),
         body: JSON.stringify(plan)
       });
     } catch {
@@ -2012,7 +2023,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setVtuDataPlans((prev) => prev.filter((p) => p.planId !== planId));
     try {
       await fetch(`/api/vtu/admin/plans/${encodeURIComponent(planId)}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: getAdminHeaders()
       });
     } catch {
       // Removed in local state
@@ -2036,7 +2048,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       try {
         await fetch('/api/vtu/admin/plans', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAdminHeaders(),
           body: JSON.stringify(toggledPlan)
         });
       } catch {
@@ -2054,7 +2066,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       await fetch('/api/vtu/admin/settings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAdminHeaders(),
         body: JSON.stringify(config)
       });
     } catch {
@@ -2070,7 +2082,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const res = await fetch(`/api/vtu/admin/transactions/${encodeURIComponent(txId)}/action`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAdminHeaders(),
         body: JSON.stringify({ action })
       });
       if (res.ok) {

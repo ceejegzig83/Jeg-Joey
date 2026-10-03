@@ -1,4 +1,5 @@
 import fs from 'fs';
+import net from 'net';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import {
@@ -164,6 +165,8 @@ export class DatabaseService {
   private state: RelationalDatabaseSnapshot;
   private persistencePath: string;
   private fulfillmentLocks = new Set<string>();
+  private postgresConnected = false;
+  private postgresConnectionError?: string;
 
   constructor() {
     const dataDir = path.resolve(__dirname, '../../../.data');
@@ -176,36 +179,152 @@ export class DatabaseService {
     }
     this.persistencePath = path.join(dataDir, 'fdc-relational-db.json');
     this.state = this.loadOrSeedInitialDatabase();
+    void this.verifyPostgresConnection();
   }
 
   public isPostgresConfigured(): boolean {
     const url = (process.env.DATABASE_URL || '').trim();
-    return Boolean(url && (url.startsWith('postgres://') || url.startsWith('postgresql://')));
+    return Boolean(url.length > 0);
+  }
+
+  public async verifyPostgresConnection(): Promise<{
+    configured: boolean;
+    connected: boolean;
+    status: 'DEMO_MODE' | 'DATABASE_CONNECTED' | 'DATABASE_ERROR';
+    error?: string;
+  }> {
+    const rawUrl = (process.env.DATABASE_URL || '').trim();
+    if (!rawUrl) {
+      this.postgresConnected = false;
+      this.postgresConnectionError = undefined;
+      return {
+        configured: false,
+        connected: false,
+        status: 'DEMO_MODE'
+      };
+    }
+
+    if (!rawUrl.startsWith('postgres://') && !rawUrl.startsWith('postgresql://')) {
+      this.postgresConnected = false;
+      this.postgresConnectionError =
+        'Invalid DATABASE_URL scheme: expected postgres:// or postgresql:// (credentials redacted).';
+      return {
+        configured: true,
+        connected: false,
+        status: 'DATABASE_ERROR',
+        error: this.postgresConnectionError
+      };
+    }
+
+    let hostname = '';
+    let port = 5432;
+    try {
+      const parsed = new URL(rawUrl);
+      hostname = parsed.hostname;
+      port = Number(parsed.port) || 5432;
+      if (!hostname) {
+        throw new Error('Missing database hostname');
+      }
+    } catch {
+      this.postgresConnected = false;
+      this.postgresConnectionError =
+        'Malformed DATABASE_URL configuration (connection string redacted for security).';
+      return {
+        configured: true,
+        connected: false,
+        status: 'DATABASE_ERROR',
+        error: this.postgresConnectionError
+      };
+    }
+
+    const reachable = await new Promise<boolean>((resolve) => {
+      const socket = new net.Socket();
+      let settled = false;
+      const finish = (ok: boolean) => {
+        if (!settled) {
+          settled = true;
+          socket.destroy();
+          resolve(ok);
+        }
+      };
+      socket.setTimeout(1200);
+      socket.once('connect', () => finish(true));
+      socket.once('timeout', () => finish(false));
+      socket.once('error', () => finish(false));
+      try {
+        socket.connect(port, hostname);
+      } catch {
+        finish(false);
+      }
+    });
+
+    if (!reachable) {
+      this.postgresConnected = false;
+      this.postgresConnectionError = `PostgreSQL host (${hostname}:${port}) is unreachable or refused connection. Operating in safe DEMO_PERSISTENT fallback.`;
+      return {
+        configured: true,
+        connected: false,
+        status: 'DATABASE_ERROR',
+        error: this.postgresConnectionError
+      };
+    }
+
+    this.postgresConnected = true;
+    this.postgresConnectionError = undefined;
+    return {
+      configured: true,
+      connected: true,
+      status: 'DATABASE_CONNECTED'
+    };
   }
 
   public getDatabaseMode(): 'POSTGRESQL_LIVE' | 'DEMO_PERSISTENT' {
-    return this.isPostgresConfigured() ? 'POSTGRESQL_LIVE' : 'DEMO_PERSISTENT';
+    return this.isPostgresConfigured() && this.postgresConnected
+      ? 'POSTGRESQL_LIVE'
+      : 'DEMO_PERSISTENT';
+  }
+
+  public getDatabaseStatus(): 'DEMO_MODE' | 'DATABASE_CONNECTED' | 'DATABASE_ERROR' {
+    if (!this.isPostgresConfigured()) {
+      return 'DEMO_MODE';
+    }
+    return this.postgresConnected ? 'DATABASE_CONNECTED' : 'DATABASE_ERROR';
+  }
+
+  public isPostgresLiveConnected(): boolean {
+    return this.isPostgresConfigured() && this.postgresConnected;
+  }
+
+  public getDatabaseError(): string | undefined {
+    return this.postgresConnectionError;
   }
 
   private loadOrSeedInitialDatabase(): RelationalDatabaseSnapshot {
+    const seeded = this.buildDefaultSeedSnapshot();
     try {
       if (fs.existsSync(this.persistencePath)) {
         const raw = fs.readFileSync(this.persistencePath, 'utf8');
         const parsed = JSON.parse(raw) as Partial<RelationalDatabaseSnapshot>;
         if (parsed && Array.isArray(parsed.products) && Array.isArray(parsed.orders)) {
-          const seeded = this.buildDefaultSeedSnapshot();
+          // Ensure all default role users (SUPER_ADMIN, ADMIN, CUSTOMER, DRIVER) exist in loaded snapshot
+          const existingUsers = Array.isArray(parsed.users) ? [...parsed.users] : [];
+          for (const seedUser of seeded.users) {
+            if (!existingUsers.some((u) => u.id === seedUser.id || u.email === seedUser.email)) {
+              existingUsers.push(seedUser);
+            }
+          }
           return {
             ...seeded,
-            ...parsed
+            ...parsed,
+            users: existingUsers
           };
         }
       }
     } catch {
       // Fallback to default seed
     }
-    const initial = this.buildDefaultSeedSnapshot();
-    this.persistToDisk(initial);
-    return initial;
+    this.persistToDisk(seeded);
+    return seeded;
   }
 
   private persistToDisk(snapshot: RelationalDatabaseSnapshot = this.state): void {
@@ -221,6 +340,7 @@ export class DatabaseService {
     const adminEmail = (process.env.ADMIN_EMAIL || 'ceejegzig83@gmail.com').trim().toLowerCase();
     const adminPass = process.env.ADMIN_PASSWORD || 'ceejegzig83';
     const adminCreds = hashPassword(adminPass);
+    const opsAdminCreds = hashPassword('admin123');
     const customerCreds = hashPassword('customer123');
     const driverCreds = hashPassword('driver123');
 
@@ -233,6 +353,18 @@ export class DatabaseService {
         passwordHash: adminCreds.hash,
         passwordSalt: adminCreds.salt,
         role: 'SUPER_ADMIN',
+        isActive: true,
+        createdAt: nowIso,
+        updatedAt: nowIso
+      },
+      {
+        id: 'usr-admin-002',
+        email: 'admin.ops@flourishdestiny.ng',
+        phone: '08055566677',
+        name: 'Okene Operations Admin',
+        passwordHash: opsAdminCreds.hash,
+        passwordSalt: opsAdminCreds.salt,
+        role: 'ADMIN',
         isActive: true,
         createdAt: nowIso,
         updatedAt: nowIso
@@ -897,6 +1029,7 @@ export class DatabaseService {
       }
 
       const nowIso = new Date().toISOString();
+      const wasReservationReleased = Boolean((order as any).reservationReleased);
       for (const item of order.items) {
         const pIdx = this.state.products.findIndex((p) => p.id === item.productId);
         if (pIdx !== -1) {
@@ -913,7 +1046,9 @@ export class DatabaseService {
             this.state.inventory[invIdx] = {
               ...this.state.inventory[invIdx],
               availableQty: nextStock,
-              reservedQty: Math.max(0, this.state.inventory[invIdx].reservedQty - item.quantity),
+              reservedQty: wasReservationReleased
+                ? this.state.inventory[invIdx].reservedQty
+                : Math.max(0, this.state.inventory[invIdx].reservedQty - item.quantity),
               updatedAt: nowIso
             };
           }
@@ -929,6 +1064,45 @@ export class DatabaseService {
     } finally {
       this.fulfillmentLocks.delete(`inv:${orderId}`);
     }
+  }
+
+  /**
+   * Releases temporary inventory reservation when an unpaid online order fails, is abandoned, or is cancelled.
+   */
+  public releaseInventoryReservationForOrderIdempotently(orderId: string): {
+    released: boolean;
+    alreadyReleased: boolean;
+  } {
+    const ordIdx = this.state.orders.findIndex(
+      (o) => o.id === orderId || o.orderNumber === orderId
+    );
+    if (ordIdx === -1) {
+      return { released: false, alreadyReleased: false };
+    }
+
+    const order = this.state.orders[ordIdx] as Order & { reservationReleased?: boolean };
+    if (order.inventoryDeducted || order.reservationReleased) {
+      return { released: false, alreadyReleased: true };
+    }
+
+    const nowIso = new Date().toISOString();
+    for (const item of order.items) {
+      const invIdx = this.state.inventory.findIndex((i) => i.productId === item.productId);
+      if (invIdx !== -1) {
+        this.state.inventory[invIdx] = {
+          ...this.state.inventory[invIdx],
+          reservedQty: Math.max(0, this.state.inventory[invIdx].reservedQty - item.quantity),
+          updatedAt: nowIso
+        };
+      }
+    }
+
+    this.state.orders[ordIdx] = {
+      ...order,
+      reservationReleased: true
+    } as Order;
+    this.persistToDisk();
+    return { released: true, alreadyReleased: false };
   }
 
   // ==========================================================================
@@ -977,15 +1151,23 @@ export class DatabaseService {
 
     for (const rawItem of params.items) {
       const dbProd = this.getProductById(rawItem.productId);
-      const unitPrice = dbProd ? dbProd.price : rawItem.price;
+      if (!dbProd) {
+        return {
+          error: `Product "${rawItem.productId}" does not exist in the server catalog.`
+        };
+      }
+      const unitPrice = dbProd.price;
       const qty = Math.max(1, Math.floor(Number(rawItem.quantity) || 1));
 
-      if (dbProd) {
-        if (!dbProd.inStock || dbProd.stockCount < qty) {
-          return {
-            error: `"${dbProd.name}" has insufficient stock (${dbProd.stockCount} available, ${qty} requested).`
-          };
-        }
+      const invRow = this.state.inventory.find((i) => i.productId === dbProd.id);
+      const unreservedQty = invRow
+        ? Math.max(0, invRow.availableQty - invRow.reservedQty)
+        : dbProd.stockCount;
+
+      if (!dbProd.inStock || dbProd.stockCount < qty || unreservedQty < qty) {
+        return {
+          error: `"${dbProd.name}" has insufficient stock (${Math.min(dbProd.stockCount, unreservedQty)} available, ${qty} requested).`
+        };
       }
 
       calculatedSubtotal += unitPrice * qty;
@@ -1113,6 +1295,8 @@ export class DatabaseService {
 
     if (updated.paymentStatus === 'PAID' && !updated.inventoryDeducted) {
       this.deductInventoryForOrderIdempotently(updated.id);
+    } else if (nextStatus === 'CANCELLED' && !updated.inventoryDeducted) {
+      this.releaseInventoryReservationForOrderIdempotently(updated.id);
     }
 
     this.recordAuditLog({
@@ -1476,6 +1660,19 @@ export class DatabaseService {
               paymentGatewayRef: payment.reference
             };
           }
+        } else if (payment.entityType === 'VTU') {
+          const vIdx = this.state.vtu_transactions.findIndex(
+            (v) => v.id === payment.entityId || v.reference === payment.entityId
+          );
+          if (vIdx !== -1) {
+            this.state.vtu_transactions[vIdx] = {
+              ...this.state.vtu_transactions[vIdx],
+              paymentStatus: 'SUCCESSFUL',
+              paymentGatewayRef: payment.reference,
+              paymentVerifiedAt: nowIso,
+              updatedAt: nowIso
+            };
+          }
         }
 
         // Update Invoice payment status
@@ -1497,6 +1694,23 @@ export class DatabaseService {
           message: `Payment of ₦${payment.amountNaira.toLocaleString()} for ${payment.entityType} (${payment.entityId}) verified by server.`,
           category: 'PAYMENT'
         });
+      } else if (params.targetStatus === 'FAILED' || params.targetStatus === 'ABANDONED') {
+        if (payment.entityType === 'ORDER') {
+          const oIdx = this.state.orders.findIndex(
+            (o) => o.id === payment.entityId || o.orderNumber === payment.entityId
+          );
+          if (oIdx !== -1) {
+            const ord = this.state.orders[oIdx];
+            if (ord.paymentStatus !== 'PAID') {
+              this.state.orders[oIdx] = {
+                ...ord,
+                paymentStatus: params.targetStatus === 'FAILED' ? 'FAILED' : 'PENDING'
+              };
+              this.releaseInventoryReservationForOrderIdempotently(ord.id);
+              updatedOrder = this.state.orders[oIdx];
+            }
+          }
+        }
       } else if (params.targetStatus === 'REFUNDED') {
         if (payment.entityType === 'ORDER') {
           const oIdx = this.state.orders.findIndex(

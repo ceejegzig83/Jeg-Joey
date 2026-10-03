@@ -510,13 +510,16 @@ export interface SystemArchitectureStatus {
   operationalMode: 'DEMO_MODE' | 'PRODUCTION_MODE';
   database: {
     mode: 'DEMO_PERSISTENT' | 'POSTGRESQL_LIVE';
+    status: 'DEMO_MODE' | 'DATABASE_CONNECTED' | 'DATABASE_ERROR';
     connected: boolean;
     engine: string;
+    error?: string;
     entitiesCount: Record<string, number>;
   };
   paystack: {
     mode: 'TEST_MODE' | 'LIVE_MODE';
     configured: boolean;
+    sandboxStatus: string;
     webhookEndpoint: string;
   };
   vtu: {

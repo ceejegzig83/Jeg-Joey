@@ -142,12 +142,29 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
 
 export function requireRole(allowedRoles: UserRole[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (req.authUser && allowedRoles.includes(req.authUser.role)) {
-      next();
+    // 1. If a Bearer JWT token is present and verified, strictly enforce its role
+    if (req.authUser) {
+      if (allowedRoles.includes(req.authUser.role)) {
+        next();
+        return;
+      }
+      res.status(403).json({
+        success: false,
+        error: `Forbidden: Role ${req.authUser.role} is not authorized. Requires one of [${allowedRoles.join(', ')}].`
+      });
       return;
     }
 
-    // Support Demo/Test Mode Admin Header when signed in through Admin Portal
+    // 2. If an invalid Bearer token was provided (header exists but verification failed), reject with 401
+    if (req.headers.authorization) {
+      res.status(401).json({
+        success: false,
+        error: 'Invalid or expired authentication token.'
+      });
+      return;
+    }
+
+    // 3. Support Demo/Test Mode Admin Header ONLY when no Bearer token was sent and Admin Portal is active
     const demoAdminToken = req.headers['x-fdc-admin-session'];
     if (
       (allowedRoles.includes('ADMIN') || allowedRoles.includes('SUPER_ADMIN')) &&
