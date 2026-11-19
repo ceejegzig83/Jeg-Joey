@@ -951,6 +951,44 @@ async function startServer() {
     res.json({ success: true, drivers: db.getDrivers() });
   });
 
+  app.post('/api/drivers', requireRole(['ADMIN', 'SUPER_ADMIN']), (req, res) => {
+    const result = db.saveDriver(req.body, resolveActor(req));
+    if (result.error) {
+      return res.status(400).json({ success: false, error: result.error });
+    }
+    return res.status(201).json({ success: true, driver: result.driver, drivers: db.getDrivers() });
+  });
+
+  app.put('/api/drivers/:id', requireRole(['ADMIN', 'SUPER_ADMIN']), (req, res) => {
+    const driverPayload = { ...req.body, id: req.params.id };
+    const result = db.saveDriver(driverPayload, resolveActor(req));
+    if (result.error) {
+      return res.status(400).json({ success: false, error: result.error });
+    }
+    return res.json({ success: true, driver: result.driver, drivers: db.getDrivers() });
+  });
+
+  app.patch('/api/drivers/:id/status', requireRole(['ADMIN', 'SUPER_ADMIN']), (req, res) => {
+    const { fleetStatus, reason } = req.body || {};
+    if (!fleetStatus) {
+      return res.status(400).json({ success: false, error: 'Fleet status is required.' });
+    }
+    const result = db.updateDriverStatus(req.params.id, fleetStatus, reason, resolveActor(req));
+    if (result.error) {
+      return res.status(400).json({ success: false, error: result.error });
+    }
+    return res.json({ success: true, driver: result.driver, drivers: db.getDrivers() });
+  });
+
+  app.delete('/api/drivers/:id', requireRole(['ADMIN', 'SUPER_ADMIN']), (req, res) => {
+    const reason = req.body?.reason || req.query.reason || 'Terminated by Admin';
+    const result = db.permanentRemoveDriver(req.params.id, String(reason), resolveActor(req));
+    if (!result.success) {
+      return res.status(400).json({ success: false, error: result.error });
+    }
+    return res.json({ success: true, drivers: db.getDrivers() });
+  });
+
   app.post(
     '/api/drivers/:id/toggle-online',
     requireRole(['DRIVER', 'ADMIN', 'SUPER_ADMIN']),
@@ -968,7 +1006,7 @@ async function startServer() {
 
       const driver = db.toggleDriverOnline(req.params.id);
       if (!driver) {
-        return res.status(404).json({ success: false, error: 'Driver not found.' });
+        return res.status(400).json({ success: false, error: 'Driver not found or suspended/deactivated.' });
       }
       return res.json({ success: true, driver, drivers: db.getDrivers() });
     }

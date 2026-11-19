@@ -11,6 +11,7 @@ import {
   CateringBooking,
   RideRequest,
   Driver,
+  FleetStatus,
   VTUDataPlan,
   VTUTransaction,
   VTUConfig,
@@ -1849,12 +1850,151 @@ export class DatabaseService {
     return this.state.drivers;
   }
 
+  public saveDriver(
+    driver: Driver,
+    actor: { id: string; name: string; role: string }
+  ): { driver?: Driver; error?: string } {
+    const existingIdx = this.state.drivers.findIndex((d) => d.id === driver.id);
+
+    const dupPhone = this.state.drivers.find(
+      (d) => d.phone === driver.phone && d.id !== driver.id
+    );
+    if (dupPhone) {
+      return { error: `Phone number ${driver.phone} is already registered to another driver (${dupPhone.name}).` };
+    }
+
+    const dupPlate = this.state.drivers.find(
+      (d) => d.plateNumber.toUpperCase() === driver.plateNumber.toUpperCase() && d.id !== driver.id
+    );
+    if (dupPlate) {
+      return { error: `Plate number ${driver.plateNumber} is already assigned to another vehicle (${dupPlate.name}).` };
+    }
+
+    const nowIso = new Date().toISOString();
+    const normalizedDriver: Driver = {
+      ...driver,
+      plateNumber: driver.plateNumber.toUpperCase(),
+      avatar: driver.photo || driver.avatar || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=400&q=80',
+      photo: driver.photo || driver.avatar || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=400&q=80',
+      verificationStatus: driver.verificationStatus || 'VERIFIED',
+      fleetStatus: driver.fleetStatus || 'ACTIVE',
+      vehicleInspectionStatus: driver.vehicleInspectionStatus || 'PASSED',
+      insuranceStatus: driver.insuranceStatus || 'ACTIVE',
+      registrationDate: driver.registrationDate || nowIso.slice(0, 10),
+      serviceAgreement: driver.serviceAgreement ?? true
+    };
+
+    if (existingIdx !== -1) {
+      this.state.drivers[existingIdx] = normalizedDriver;
+      this.recordAuditLog({
+        actorId: actor.id,
+        actorName: actor.name,
+        actorRole: actor.role as any,
+        action: 'DRIVER_UPDATED',
+        entityType: 'DRIVER',
+        entityId: normalizedDriver.id,
+        summary: `Updated driver profile for ${normalizedDriver.name} (${normalizedDriver.vehicleType} - ${normalizedDriver.plateNumber})`
+      });
+    } else {
+      this.state.drivers = [normalizedDriver, ...this.state.drivers];
+      this.recordAuditLog({
+        actorId: actor.id,
+        actorName: actor.name,
+        actorRole: actor.role as any,
+        action: 'DRIVER_REGISTERED',
+        entityType: 'DRIVER',
+        entityId: normalizedDriver.id,
+        summary: `Registered new Kogi ${normalizedDriver.vehicleType} driver: ${normalizedDriver.name} (${normalizedDriver.plateNumber})`
+      });
+    }
+
+    this.persistToDisk();
+    return { driver: normalizedDriver };
+  }
+
+  public updateDriverStatus(
+    driverId: string,
+    fleetStatus: FleetStatus,
+    reason?: string,
+    actor?: { id: string; name: string; role: string }
+  ): { driver?: Driver; error?: string } {
+    const idx = this.state.drivers.findIndex((d) => d.id === driverId);
+    if (idx === -1) return { error: 'Driver not found.' };
+
+    const current = this.state.drivers[idx];
+    const nowIso = new Date().toISOString();
+
+    const updated: Driver = {
+      ...current,
+      fleetStatus,
+      isOnline: fleetStatus === 'ACTIVE' ? current.isOnline : false,
+      suspensionReason: fleetStatus === 'SUSPENDED' ? (reason || current.suspensionReason) : current.suspensionReason,
+      suspendedAt: fleetStatus === 'SUSPENDED' ? nowIso : current.suspendedAt,
+      suspendedBy: fleetStatus === 'SUSPENDED' ? (actor?.name || 'HQ Admin') : current.suspendedBy
+    };
+
+    this.state.drivers[idx] = updated;
+
+    if (actor) {
+      this.recordAuditLog({
+        actorId: actor.id,
+        actorName: actor.name,
+        actorRole: actor.role as any,
+        action: `DRIVER_${fleetStatus}`,
+        entityType: 'DRIVER',
+        entityId: updated.id,
+        summary: `Driver ${updated.name} status updated to ${fleetStatus}${reason ? `. Reason: ${reason}` : ''}`
+      });
+    }
+
+    this.persistToDisk();
+    return { driver: updated };
+  }
+
+  public permanentRemoveDriver(
+    driverId: string,
+    reason: string,
+    actor: { id: string; name: string; role: string }
+  ): { success: boolean; error?: string } {
+    const driver = this.state.drivers.find((d) => d.id === driverId);
+    if (!driver) return { success: false, error: 'Driver not found.' };
+
+    const activeRide = this.state.rides.find(
+      (r) => r.driver?.id === driverId && r.status !== 'TRIP_COMPLETED' && r.status !== 'CANCELLED'
+    );
+    if (activeRide) {
+      return {
+        success: false,
+        error: `Cannot remove driver ${driver.name} because they have an active ongoing trip (${activeRide.id}). Please complete or cancel the active ride first.`
+      };
+    }
+
+    this.state.drivers = this.state.drivers.filter((d) => d.id !== driverId);
+
+    this.recordAuditLog({
+      actorId: actor.id,
+      actorName: actor.name,
+      actorRole: actor.role as any,
+      action: 'DRIVER_PERMANENTLY_REMOVED',
+      entityType: 'DRIVER',
+      entityId: driverId,
+      summary: `Permanently removed driver ${driver.name} (${driver.plateNumber}). Reason: ${reason}`
+    });
+
+    this.persistToDisk();
+    return { success: true };
+  }
+
   public toggleDriverOnline(driverId: string): Driver | null {
     const idx = this.state.drivers.findIndex((d) => d.id === driverId);
     if (idx === -1) return null;
+    const current = this.state.drivers[idx];
+    if (current.fleetStatus !== 'ACTIVE') {
+      return null; // Cannot toggle online if suspended, deactivated, or pending verification
+    }
     this.state.drivers[idx] = {
-      ...this.state.drivers[idx],
-      isOnline: !this.state.drivers[idx].isOnline
+      ...current,
+      isOnline: !current.isOnline
     };
     this.persistToDisk();
     return this.state.drivers[idx];

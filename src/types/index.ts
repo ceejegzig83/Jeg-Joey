@@ -349,19 +349,52 @@ export interface AppNotification {
   isDemoNotification: boolean;
 }
 
+export type FleetStatus = 'ACTIVE' | 'OFFLINE' | 'SUSPENDED' | 'DEACTIVATED' | 'PENDING_VERIFICATION';
+export type VerificationStatus = 'PENDING' | 'VERIFIED' | 'REJECTED';
+export type VehicleInspectionStatus = 'PASSED' | 'PENDING' | 'FAILED';
+export type InsuranceStatus = 'ACTIVE' | 'EXPIRED' | 'NONE';
+
 export interface Driver {
   id: string;
   name: string;
   phone: string;
+  email?: string;
   photo: string;
+  avatar?: string;
+  residentialAddress?: string;
+  dob?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  idType?: string; // e.g. 'National ID (NIN)', 'Voter Card', 'Driver Licence'
+  idReference?: string;
+  licenceNumber?: string;
+  licenceExpiry?: string;
+  verificationStatus: VerificationStatus;
   vehicleType: VehicleType;
   vehicleModel: string;
+  vehicleColor?: string;
   plateNumber: string;
+  vehiclePhoto?: string;
+  vehicleInspectionStatus: VehicleInspectionStatus;
+  insuranceStatus: InsuranceStatus;
+  insuranceExpiry?: string;
+  operatingArea: string;
+  lga: string;
+  registrationDate: string;
+  serviceAgreement: boolean;
+  fleetStatus: FleetStatus;
+  suspensionReason?: string;
+  suspendedAt?: string;
+  suspendedBy?: string;
+  removalReason?: string;
+  removedAt?: string;
+  removedBy?: string;
   rating: number;
   totalTrips: number;
   currentLat: number;
   currentLng: number;
   isOnline: boolean;
+  isAvailable?: boolean;
 }
 
 export interface Order {
