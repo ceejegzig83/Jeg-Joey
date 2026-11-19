@@ -110,6 +110,8 @@ interface AppContextType {
   updateDriver: (driver: Driver) => void;
   deleteDriver: (id: string) => void;
   toggleDriverOnline: (id: string) => void;
+  updateDriverStatus: (driverId: string, status: Driver['fleetStatus'], reason?: string) => void;
+  permanentRemoveDriver: (driverId: string, reason: string) => { success: boolean; error?: string };
   fareConfig: FareConfig;
   updateFareConfig: (config: Partial<FareConfig>) => void;
 
@@ -1156,12 +1158,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const toggleDriverOnline = (id: string) => {
     setDrivers(prev => prev.map(d => {
       if (d.id === id) {
+        if (d.fleetStatus !== 'ACTIVE') {
+          showToast(`Cannot set online: driver status is ${d.fleetStatus}`, 'error');
+          return d;
+        }
         const nextState = !d.isOnline;
         showToast(`Driver ${d.name} is now ${nextState ? 'Online' : 'Offline'}`, 'info');
         return { ...d, isOnline: nextState };
       }
       return d;
     }));
+  };
+
+  const updateDriverStatus = (driverId: string, status: Driver['fleetStatus'], reason?: string) => {
+    setDrivers(prev => prev.map(d => {
+      if (d.id === driverId) {
+        const nowIso = new Date().toISOString();
+        return {
+          ...d,
+          fleetStatus: status,
+          isOnline: status === 'ACTIVE' ? d.isOnline : false,
+          suspensionReason: status === 'SUSPENDED' ? (reason || d.suspensionReason) : d.suspensionReason,
+          suspendedAt: status === 'SUSPENDED' ? nowIso : d.suspendedAt
+        };
+      }
+      return d;
+    }));
+    showToast(`Driver status successfully updated to ${status}`, 'success', 'Fleet Management');
+  };
+
+  const permanentRemoveDriver = (driverId: string, reason: string): { success: boolean; error?: string } => {
+    const target = drivers.find(d => d.id === driverId);
+    if (!target) return { success: false, error: 'Driver not found.' };
+
+    const activeRide = rideHistory.find(r => r.driver?.id === driverId && r.status !== 'TRIP_COMPLETED' && r.status !== 'CANCELLED');
+    if (activeRide) {
+      showToast(`Cannot remove driver ${target.name}: active ongoing trip (${activeRide.id})`, 'error', 'Removal Blocked');
+      return { success: false, error: `Driver has an active ongoing trip (${activeRide.id}). Complete or cancel the ride first.` };
+    }
+
+    setDrivers(prev => prev.filter(d => d.id !== driverId));
+    showToast(`Driver ${target.name} permanently removed. Reason: ${reason}`, 'info', 'Driver Terminated');
+    return { success: true };
   };
 
   const updateFareConfig = (config: Partial<FareConfig>) => {
@@ -1602,8 +1640,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     totalFare: number;
     paymentMethod: RideRequest['paymentMethod'];
   }): RideRequest | null => {
-    const eligibleDrivers = drivers.filter(d => d.vehicleType === data.vehicleType && d.isOnline);
-    const assignedDriver = eligibleDrivers.length > 0 ? eligibleDrivers[Math.floor(Math.random() * eligibleDrivers.length)] : drivers[0];
+    const eligibleDrivers = drivers.filter(d => 
+      d.vehicleType === data.vehicleType && 
+      d.isOnline && 
+      d.fleetStatus === 'ACTIVE' && 
+      d.verificationStatus === 'VERIFIED' && 
+      (d.isAvailable ?? true)
+    );
+
+    if (eligibleDrivers.length === 0) {
+      showToast(`No online or available ${data.vehicleType === 'KEKE' ? 'Keke' : 'Car'} drivers found right now. Please try again shortly.`, 'error', 'No Drivers Available');
+      return null;
+    }
+
+    const assignedDriver = eligibleDrivers[Math.floor(Math.random() * eligibleDrivers.length)];
 
     const newRide: RideRequest = {
       id: `ride-${Date.now()}`,

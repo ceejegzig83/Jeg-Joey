@@ -50,6 +50,7 @@ import { CateringPackageModal } from './CateringPackageModal';
 import { CateringDishModal } from './CateringDishModal';
 import { TransportRouteModal } from './TransportRouteModal';
 import { DriverFormModal } from './DriverFormModal';
+import { DriverProfileModal } from './DriverProfileModal';
 import { AdminVTUPanel } from './AdminVTUPanel';
 
 export const AdminDashboard: React.FC = () => {
@@ -98,6 +99,8 @@ export const AdminDashboard: React.FC = () => {
     addDriver,
     updateDriver,
     deleteDriver,
+    updateDriverStatus,
+    permanentRemoveDriver,
     businessInfo,
     updateBusinessInfo,
     announcement,
@@ -121,6 +124,11 @@ export const AdminDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<
     'OVERVIEW' | 'VTU' | 'PRODUCTS' | 'TAILORING' | 'CAKES' | 'CATERING' | 'TRANSPORT' | 'ORDERS' | 'CUSTOMERS' | 'PAYMENTS' | 'SETTINGS'
   >('OVERVIEW');
+
+  // Driver filters & profile modal state
+  const [driverCategoryFilter, setDriverCategoryFilter] = useState<'ALL' | 'KEKE' | 'CAR'>('ALL');
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [selectedProfileDriver, setSelectedProfileDriver] = useState<Driver | null>(null);
 
   // Product filters
   const [productDivisionFilter, setProductDivisionFilter] = useState<'ALL' | 'FASHION' | 'BAKERY' | 'GROCERY'>('ALL');
@@ -404,6 +412,25 @@ export const AdminDashboard: React.FC = () => {
           }
         }}
         driverToEdit={driverToEdit}
+      />
+
+      <DriverProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => { setIsProfileModalOpen(false); setSelectedProfileDriver(null); }}
+        driver={selectedProfileDriver}
+        onStatusChange={(id, status, reason) => {
+          updateDriverStatus(id, status, reason);
+          if (selectedProfileDriver && selectedProfileDriver.id === id) {
+            setSelectedProfileDriver({ ...selectedProfileDriver, fleetStatus: status, suspensionReason: reason || selectedProfileDriver.suspensionReason });
+          }
+        }}
+        onPermanentRemove={(id, reason) => {
+          const res = permanentRemoveDriver(id, reason);
+          if (res.success) {
+            setIsProfileModalOpen(false);
+            setSelectedProfileDriver(null);
+          }
+        }}
       />
 
       {/* Header Bar */}
@@ -1530,75 +1557,125 @@ export const AdminDashboard: React.FC = () => {
                   Onboard and manage vetted Keke and Car operators for immediate dispatch.
                 </p>
               </div>
-              <button
-                onClick={() => {
-                  setDriverToEdit(null);
-                  setIsDriverModalOpen(true);
-                }}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-xs"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Onboard Driver</span>
-              </button>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex bg-stone-100 p-1 rounded-xl text-xs font-bold">
+                  {[
+                    { key: 'ALL', label: `All Drivers (${drivers.length})` },
+                    { key: 'KEKE', label: `🛺 Keke Riders (${drivers.filter(d => d.vehicleType === 'KEKE').length})` },
+                    { key: 'CAR', label: `🚗 Car Drivers (${drivers.filter(d => d.vehicleType === 'CAR').length})` },
+                  ].map(f => (
+                    <button
+                      key={f.key}
+                      onClick={() => setDriverCategoryFilter(f.key as any)}
+                      className={`px-3 py-1.5 rounded-lg transition-all ${
+                        driverCategoryFilter === f.key ? 'bg-white text-stone-900 shadow-xs' : 'text-stone-600 hover:text-stone-900'
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  onClick={() => {
+                    setDriverToEdit(null);
+                    setIsDriverModalOpen(true);
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-xs"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Onboard Driver</span>
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
-              {drivers.map((driver) => (
-                <div
-                  key={driver.id}
-                  className="bg-stone-50 rounded-2xl border border-stone-200 p-4 space-y-3 flex flex-col justify-between"
-                >
-                  <div className="flex items-center gap-3">
-                    <img
-                      src={driver.avatar}
-                      alt={driver.name}
-                      className="w-12 h-12 rounded-full object-cover border border-stone-300 bg-stone-200"
-                      referrerPolicy="no-referrer"
-                    />
-                    <div>
-                      <h4 className="font-bold text-stone-900 text-xs">{driver.name}</h4>
-                      <div className="text-[11px] text-stone-500">{driver.phone}</div>
-                      <span className={`inline-block px-1.5 py-0.2 mt-0.5 rounded text-[9px] font-bold ${
-                        driver.isAvailable ? 'bg-emerald-100 text-emerald-800' : 'bg-stone-200 text-stone-600'
-                      }`}>
-                        {driver.isAvailable ? '● ONLINE' : '○ OFFLINE'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="text-[11px] text-stone-700 bg-white p-2.5 rounded-xl border border-stone-200 space-y-1">
-                    <div className="font-semibold text-stone-900">
-                      {driver.vehicleType === 'KEKE' ? '🛺 Keke' : '🚗 Car'}: {driver.vehicleModel}
-                    </div>
-                    <div className="font-mono text-stone-600 font-bold">{driver.plateNumber}</div>
-                    <div className="text-amber-600 font-bold text-[10px]">★ {driver.rating} ({driver.totalTrips} trips)</div>
-                  </div>
-
-                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-200">
-                    <button
-                      onClick={() => {
-                        setDriverToEdit(driver);
-                        setIsDriverModalOpen(true);
-                      }}
-                      className="px-2 py-1 rounded-lg bg-stone-200 hover:bg-stone-300 text-stone-800 font-bold text-[10px] flex items-center gap-1"
-                    >
-                      <Edit2 className="w-3 h-3" /> Edit
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (window.confirm(`Delete driver "${driver.name}"?`)) {
-                          deleteDriver(driver.id);
-                          showToast('Driver removed from roster.', 'info');
-                        }
-                      }}
-                      className="p-1 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-700"
-                      title="Delete Driver"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </div>
+              {drivers.filter(d => driverCategoryFilter === 'ALL' || d.vehicleType === driverCategoryFilter).length === 0 ? (
+                <div className="col-span-full py-12 text-center text-stone-500 text-xs bg-stone-50 rounded-2xl border border-stone-200">
+                  No drivers found in the "{driverCategoryFilter}" category. Click "Onboard Driver" to register new operators.
                 </div>
-              ))}
+              ) : (
+                drivers
+                  .filter(d => driverCategoryFilter === 'ALL' || d.vehicleType === driverCategoryFilter)
+                  .map((driver) => (
+                    <div
+                      key={driver.id}
+                      className="bg-stone-50 rounded-2xl border border-stone-200 p-4 space-y-3 flex flex-col justify-between hover:border-stone-300 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={driver.avatar}
+                          alt={driver.name}
+                          className="w-12 h-12 rounded-full object-cover border border-stone-300 bg-stone-200"
+                          referrerPolicy="no-referrer"
+                        />
+                        <div>
+                          <h4 className="font-bold text-stone-900 text-xs">{driver.name}</h4>
+                          <div className="text-[11px] text-stone-500">{driver.phone}</div>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className={`inline-block px-1.5 py-0.2 rounded text-[9px] font-bold ${
+                              driver.isAvailable ? 'bg-emerald-100 text-emerald-800' : 'bg-stone-200 text-stone-600'
+                            }`}>
+                              {driver.isAvailable ? '● ONLINE' : '○ OFFLINE'}
+                            </span>
+                            <span className={`inline-block px-1.5 py-0.2 rounded text-[9px] font-bold ${
+                              driver.fleetStatus === 'ACTIVE' ? 'bg-blue-100 text-blue-800' :
+                              driver.fleetStatus === 'SUSPENDED' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'
+                            }`}>
+                              {driver.fleetStatus}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="text-[11px] text-stone-700 bg-white p-2.5 rounded-xl border border-stone-200 space-y-1">
+                        <div className="font-semibold text-stone-900">
+                          {driver.vehicleType === 'KEKE' ? '🛺 Keke' : '🚗 Car'}: {driver.vehicleModel}
+                        </div>
+                        <div className="font-mono text-stone-600 font-bold">{driver.plateNumber}</div>
+                        <div className="text-amber-600 font-bold text-[10px]">★ {driver.rating} ({driver.totalTrips} trips)</div>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-2 border-t border-stone-200">
+                        <button
+                          onClick={() => {
+                            setSelectedProfileDriver(driver);
+                            setIsProfileModalOpen(true);
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-stone-900 hover:bg-stone-800 text-white font-bold text-[10px] flex items-center gap-1 cursor-pointer"
+                        >
+                          <Eye className="w-3 h-3 text-amber-400" /> View Profile
+                        </button>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => {
+                              setDriverToEdit(driver);
+                              setIsDriverModalOpen(true);
+                            }}
+                            className="p-1.5 rounded-lg bg-stone-200 hover:bg-stone-300 text-stone-800 cursor-pointer"
+                            title="Edit Driver"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (window.confirm(`Delete driver "${driver.name}"?`)) {
+                                deleteDriver(driver.id);
+                                showToast('Driver removed from roster.', 'info');
+                              }
+                            }}
+                            className="p-1.5 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-700 cursor-pointer"
+                            title="Delete Driver"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+              )}
             </div>
           </div>
 
