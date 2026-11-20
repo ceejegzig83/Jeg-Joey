@@ -12,8 +12,8 @@ import {
 export const INITIAL_BUSINESS_CONFIG: BusinessInfoConfig = {
   name: 'FLOURISH DESTINY COLLECTION',
   subtitle: 'Multi-Service Commerce, Hospitality & Logistics Platform',
-  location: 'Okene, Kogi State, Nigeria',
-  address: 'No. 14 Inoziomi Road, Off Total Junction, Okene, Kogi State',
+  location: 'Oboroke, Ihima, Kogi State, Nigeria',
+  address: 'B18 Ultra Modern Shopping Complex, Oboroke, Ihima, Kogi State, Nigeria',
   phone: '09162723865',
   formattedPhone: '+234 916 272 3865',
   whatsappNumber: '09162723865',

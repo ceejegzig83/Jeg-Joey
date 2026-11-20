@@ -108,6 +108,14 @@ function buildSystemStatus(): SystemArchitectureStatus {
 }
 
 async function startServer() {
+  if (process.env.NODE_ENV === 'production') {
+    const dbUrl = (process.env.DATABASE_URL || '').trim();
+    if (!dbUrl || (!dbUrl.startsWith('postgres://') && !dbUrl.startsWith('postgresql://'))) {
+      console.error('[FATAL] Production Startup Error: A valid PostgreSQL DATABASE_URL (postgres:// or postgresql://) is strictly required when NODE_ENV=production. DEMO_PERSISTENT fallback is disabled.');
+      process.exit(1);
+    }
+  }
+
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
